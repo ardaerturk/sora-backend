@@ -439,7 +439,7 @@ async #selectOptionSafely(page, optionValue, optionType) {
         // });
 
         const browser = await puppeteer.launch({
-            headless: 'new', // Use new headless mode
+            headless: 'true', // Use new headless mode
             defaultViewport: { width: 1700, height: 800 },
             args: [
                 '--no-sandbox',

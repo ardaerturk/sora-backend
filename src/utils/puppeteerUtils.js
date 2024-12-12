@@ -701,6 +701,14 @@ async #selectOptionSafely(page, optionValue, optionType) {
 
         // Initial analysis
         const initialState = await this.#logPageContent(page, 'Initial Load');
+
+
+        
+        await page.goto('https://sora.com', { 
+            waitUntil: 'networkidle0',
+            timeout: 60000
+        });
+        
         
         if (!initialState.hasButtons) {
             console.log("No buttons found, waiting for dynamic content...");
@@ -714,10 +722,11 @@ async #selectOptionSafely(page, optionValue, optionType) {
 
 
         
-        
+
         // Handle potential blocks
-        if (pageState.hasCloudflare || pageState.hasReCaptcha || pageState.hasAccessDenied) {
+        if (initialState.hasCloudflare || initialState.hasReCaptcha || initialState.hasAccessDenied) {
             console.log("Detected security measure, attempting bypass...");
+
 
               // Add additional headers
               await page.setExtraHTTPHeaders({

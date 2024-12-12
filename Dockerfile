@@ -1,7 +1,7 @@
 # Use Node.js 20 as base image
 FROM node:20-slim
 
-# Install required dependencies
+# Install required dependencies for Chrome
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -72,16 +72,12 @@ RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key
     && apt-get install -y google-chrome-stable --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Set production environment
-ENV NODE_ENV=production
-
-# Expose port
-ENV PORT=8080
-EXPOSE 8080
-
 # Create a startup script
 RUN echo '#!/bin/bash\nXvfb :99 -screen 0 1024x768x16 &\nnode src/app.js' > /app/start.sh \
     && chmod +x /app/start.sh
+
+# Heroku dynamically assigns ports
+ENV PORT=$PORT
 
 # Start the application
 CMD ["/app/start.sh"]

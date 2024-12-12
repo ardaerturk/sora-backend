@@ -1,0 +1,12 @@
+setup:
+  addons:
+    - plan: heroku-postgresql:hobby-dev
+  config:
+    NODE_ENV: production
+
+build:
+  docker:
+    web: Dockerfile
+
+run:
+  web: node src/app.js

@@ -7,6 +7,41 @@ class PuppeteerService {
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
     ];
+
+    async #logPageContent(page, context = '') {
+        try {
+            const content = await page.content();
+            const title = await page.title();
+            const url = page.url();
+            
+            console.log(`\n=== Page Debug Info (${context}) ===`);
+            console.log('URL:', url);
+            console.log('Title:', title);
+            console.log('Content Preview:', content.substring(0, 500) + '...');
+            
+            // Check for common error indicators
+            const hasCloudflare = content.includes('cloudflare') || content.includes('cf-');
+            const hasReCaptcha = content.includes('recaptcha') || content.includes('g-recaptcha');
+            const hasAccessDenied = content.includes('access denied') || content.includes('403');
+            
+            if (hasCloudflare) console.log('⚠️ Cloudflare detected');
+            if (hasReCaptcha) console.log('⚠️ ReCAPTCHA detected');
+            if (hasAccessDenied) console.log('⚠️ Access Denied detected');
+            
+            // Take screenshot for visual debugging
+            await page.screenshot({ 
+                path: `debug-${Date.now()}.png`,
+                fullPage: true 
+            });
+            
+            return { hasCloudflare, hasReCaptcha, hasAccessDenied };
+        } catch (error) {
+            console.error('Error logging page content:', error);
+            return { error: error.message };
+        }
+    }
+
+
     async #simulateActivity(page) {
         try {
             await page.evaluate(() => {
@@ -541,7 +576,40 @@ async #selectOptionSafely(page, optionValue, optionType) {
                 timeout: 60000
             });
             
-            await this.#humanDelay();
+
+                    // Log initial page state
+        const pageState = await this.#logPageContent(page, 'Initial Load');
+        
+        // Handle potential blocks
+        if (pageState.hasCloudflare || pageState.hasReCaptcha || pageState.hasAccessDenied) {
+            console.log("Detected security measure, attempting bypass...");
+
+              // Add additional headers
+              await page.setExtraHTTPHeaders({
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                'Connection': 'keep-alive',
+                'Cache-Control': 'max-age=0',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-User': '?1',
+                'Sec-Fetch-Dest': 'document'
+            });
+
+              // Retry navigation with different settings
+              await page.goto('https://sora.com', {
+                waitUntil: ['networkidle0', 'domcontentloaded'],
+                timeout: 90000
+            });
+            
+            // Log retry state
+            await this.#logPageContent(page, 'After Retry');
+        }
+        
+        await this.#humanDelay();
+            
     
             console.log("Looking for login button...");
             

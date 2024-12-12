@@ -7,8 +7,7 @@
   },
   "scripts": {
     "start": "node src/app.js",
-    "worker": "node src/worker.js",
-    "postinstall": "node node_modules/puppeteer/install.js"
+    "worker": "node src/worker.js"
   },
   "keywords": [],
   "author": "",

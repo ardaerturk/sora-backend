@@ -1,0 +1,23 @@
+{
+  "name": "sora-web-app",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.47.5",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-validator": "^7.2.0",
+    "helmet": "^8.0.0",
+    "puppeteer": "^23.10.3",
+    "resend": "^4.0.1",
+    "winston": "^3.17.0"
+  }
+}

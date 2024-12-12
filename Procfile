@@ -1,2 +1,3 @@
-web: node src/app.js
-worker: node src/worker.js
+web: npm run start
+worker: npm run worker
+release: npm run postinstall

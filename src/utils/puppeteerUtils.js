@@ -566,6 +566,8 @@ async #selectOptionSafely(page, optionValue, optionType) {
 
     async initializeBrowser() {
         console.log("Initializing browser...");
+        console.log('Chrome path:', process.env.CHROME_PATH || 'default');
+        
         
         // Random user agent
         const userAgent = this.#userAgents[Math.floor(Math.random() * this.#userAgents.length)];
@@ -585,7 +587,7 @@ async #selectOptionSafely(page, optionValue, optionType) {
 
         const browser = await puppeteer.launch({
             headless: 'true', // Use new headless mode
-            defaultViewport: { width: 1700, height: 800 },
+            defaultViewport: { width: 1280, height: 720 },
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -593,13 +595,24 @@ async #selectOptionSafely(page, optionValue, optionType) {
                 '--disable-gpu',
                 '--disable-software-rasterizer',
                 '--disable-extensions',
-                // '--proxy-server=your-proxy-here', // Add if needed
+                '--single-process',
+                '--no-zygote',
+                '--disable-background-networking',
+                '--disable-default-apps',
+                '--disable-sync',
+                '--disable-translate',
+                '--hide-scrollbars',
+                '--metrics-recording-only',
+                '--mute-audio',
+                '--no-first-run',
+                '--safebrowsing-disable-auto-update',
+                '--window-size=1280,720',
                 '--disable-blink-features=AutomationControlled',
                 `--user-agent=${userAgent}`,
-                '--window-size=1280,720'
             ],
-            ignoreDefaultArgs: ['--enable-automation'],
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
+            executablePath: process.env.CHROME_PATH || process.env.PUPPETEER_EXECUTABLE_PATH || null,
+            ignoreHTTPSErrors: true,
+            dumpio: true // This will log browser console to Node console
         });
 
         const page = await browser.newPage();

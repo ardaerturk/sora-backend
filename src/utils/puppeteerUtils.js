@@ -425,17 +425,35 @@ async #selectOptionSafely(page, optionValue, optionType) {
         // Random user agent
         const userAgent = this.#userAgents[Math.floor(Math.random() * this.#userAgents.length)];
 
+        // const browser = await puppeteer.launch({
+        //     headless: false,
+        //     defaultViewport: { width: 1700, height: 800 },
+        //     args: [
+        //         '--start-maximized',
+        //         '--no-sandbox',
+        //         '--disable-setuid-sandbox',
+        //         '--disable-blink-features=AutomationControlled', // Prevents detection
+        //         `--user-agent=${userAgent}`
+        //     ],
+        //     ignoreDefaultArgs: ['--enable-automation'],
+        // });
+
         const browser = await puppeteer.launch({
-            headless: false,
+            headless: 'new', // Use new headless mode
             defaultViewport: { width: 1700, height: 800 },
             args: [
-                '--start-maximized',
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-blink-features=AutomationControlled', // Prevents detection
-                `--user-agent=${userAgent}`
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--disable-gpu',
+                '--window-size=1700,800',
+                '--disable-blink-features=AutomationControlled',
+                `--user-agent=${userAgent}`,
+                '--start-maximized'
             ],
             ignoreDefaultArgs: ['--enable-automation'],
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
         });
 
         const page = await browser.newPage();

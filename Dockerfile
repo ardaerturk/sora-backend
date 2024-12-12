@@ -1,7 +1,7 @@
 # Use Node.js 20 as base image
 FROM node:20-slim
 
-# Install required dependencies for Chrome
+# Install required dependencies
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -44,6 +44,7 @@ RUN apt-get update && apt-get install -y \
     libxtst6 \
     lsb-release \
     xdg-utils \
+    xvfb \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
@@ -61,7 +62,8 @@ COPY . .
 
 # Set environment variables for Puppeteer
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome \
+    DISPLAY=:99
 
 # Install Chrome
 RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
@@ -77,5 +79,9 @@ ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
 
+# Create a startup script
+RUN echo '#!/bin/bash\nXvfb :99 -screen 0 1024x768x16 &\nnode src/app.js' > /app/start.sh \
+    && chmod +x /app/start.sh
+
 # Start the application
-CMD ["node", "src/app.js"]
+CMD ["/app/start.sh"]

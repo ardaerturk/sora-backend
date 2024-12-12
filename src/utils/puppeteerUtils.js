@@ -566,7 +566,10 @@ async #selectOptionSafely(page, optionValue, optionType) {
 
     async initializeBrowser() {
         console.log("Initializing browser...");
-        console.log('Chrome path:', process.env.CHROME_PATH || 'default');
+
+
+        const chromePath = '/app/.chrome-for-testing/chrome-linux64/chrome';
+            console.log('Using Chrome path:', chromePath);
         
         
         // Random user agent
@@ -609,10 +612,16 @@ async #selectOptionSafely(page, optionValue, optionType) {
                 '--window-size=1280,720',
                 '--disable-blink-features=AutomationControlled',
                 `--user-agent=${userAgent}`,
+                '--remote-debugging-port=9222'  // Enable debugging
             ],
-            executablePath: process.env.CHROME_PATH || process.env.PUPPETEER_EXECUTABLE_PATH || null,
+            executablePath: chromePath,
             ignoreHTTPSErrors: true,
-            dumpio: true // This will log browser console to Node console
+            dumpio: true,
+            env: {
+                ...process.env,
+                CHROME_PATH: chromePath,
+                CHROMEDRIVER_PATH: '/app/.chrome-for-testing/chromedriver-linux64/chromedriver'
+            }
         });
 
         const page = await browser.newPage();

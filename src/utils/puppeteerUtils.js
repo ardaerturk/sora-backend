@@ -480,12 +480,13 @@ async #selectOptionSafely(page, optionValue, optionType) {
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
                 '--disable-gpu',
-                '--window-size=1700,800',
+                '--disable-software-rasterizer',
+                '--disable-extensions',
+                // '--proxy-server=your-proxy-here', // Add if needed
                 '--disable-blink-features=AutomationControlled',
                 `--user-agent=${userAgent}`,
-                '--start-maximized'
+                '--window-size=1280,720'
             ],
             ignoreDefaultArgs: ['--enable-automation'],
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
@@ -611,7 +612,20 @@ async #selectOptionSafely(page, optionValue, optionType) {
         await this.#humanDelay();
             
     
-            console.log("Looking for login button...");
+        console.log("Looking for login button...");
+        
+        // Log DOM structure around where login button should be
+        const buttonDebug = await page.evaluate(() => {
+            const buttons = Array.from(document.querySelectorAll('button'));
+            return buttons.map(button => ({
+                text: button.textContent,
+                classes: button.className,
+                isVisible: button.offsetParent !== null,
+                html: button.outerHTML
+            }));
+        });
+        console.log('Available buttons:', buttonDebug);
+
             
             // Wait for the button to be rendered
             await page.waitForFunction(() => {

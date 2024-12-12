@@ -17,26 +17,136 @@ class PuppeteerService {
             console.log(`\n=== Page Debug Info (${context}) ===`);
             console.log('URL:', url);
             console.log('Title:', title);
-            console.log('Content Preview:', content.substring(0, 500) + '...');
-            
-            // Check for common error indicators
-            const hasCloudflare = content.includes('cloudflare') || content.includes('cf-');
-            const hasReCaptcha = content.includes('recaptcha') || content.includes('g-recaptcha');
-            const hasAccessDenied = content.includes('access denied') || content.includes('403');
-            
-            if (hasCloudflare) console.log('⚠️ Cloudflare detected');
-            if (hasReCaptcha) console.log('⚠️ ReCAPTCHA detected');
-            if (hasAccessDenied) console.log('⚠️ Access Denied detected');
-            
-            // Take screenshot for visual debugging
+            console.log('\n=== Full Page Content ===\n', content);
+    
+            // Detailed DOM Analysis
+            const domAnalysis = await page.evaluate(() => {
+                const analysis = {
+                    allElements: document.getElementsByTagName('*').length,
+                    buttons: [],
+                    links: [],
+                    iframes: [],
+                    scripts: [],
+                    bodyContent: document.body ? document.body.innerText : 'No body found'
+                };
+    
+                // Analyze all buttons
+                document.querySelectorAll('button').forEach(button => {
+                    analysis.buttons.push({
+                        text: button.textContent.trim(),
+                        html: button.outerHTML,
+                        visible: button.offsetParent !== null,
+                        classes: Array.from(button.classList),
+                        attributes: Array.from(button.attributes).map(attr => ({
+                            name: attr.name,
+                            value: attr.value
+                        })),
+                        dimensions: {
+                            width: button.offsetWidth,
+                            height: button.offsetHeight
+                        },
+                        position: button.getBoundingClientRect()
+                    });
+                });
+    
+                // Analyze scripts
+                document.querySelectorAll('script').forEach(script => {
+                    analysis.scripts.push({
+                        src: script.src,
+                        type: script.type,
+                        async: script.async,
+                        defer: script.defer
+                    });
+                });
+    
+                // Check for dynamic content
+                analysis.hasReactRoot = !!document.querySelector('#__next') || !!document.querySelector('#root');
+                analysis.hasAngular = !!document.querySelector('[ng-version]');
+                analysis.hasVue = !!document.querySelector('[data-v-app]');
+    
+                return analysis;
+            });
+    
+            console.log('\n=== DOM Analysis ===');
+            console.log('Total Elements:', domAnalysis.allElements);
+            console.log('Buttons Found:', domAnalysis.buttons.length);
+            console.log('Button Details:', JSON.stringify(domAnalysis.buttons, null, 2));
+            console.log('Scripts:', domAnalysis.scripts.length);
+            console.log('Framework Detection:', {
+                react: domAnalysis.hasReactRoot,
+                angular: domAnalysis.hasAngular,
+                vue: domAnalysis.hasVue
+            });
+    
+            // Network Analysis
+            const client = await page.target().createCDPSession();
+            await client.send('Network.enable');
+            const resources = await client.send('Network.getResponseBody');
+            console.log('\n=== Network Analysis ===');
+            console.log('Resources loaded:', resources);
+    
+            // Take both regular and full-page screenshots
+            const timestamp = Date.now();
             await page.screenshot({ 
-                path: `debug-${Date.now()}.png`,
+                path: `debug-viewport-${timestamp}.png`,
+                fullPage: false 
+            });
+            await page.screenshot({ 
+                path: `debug-fullpage-${timestamp}.png`,
                 fullPage: true 
             });
-            
-            return { hasCloudflare, hasReCaptcha, hasAccessDenied };
+    
+            // Check for specific elements that might be loading
+            const elementChecks = await page.evaluate(() => {
+                const selectors = [
+                    'button',
+                    'button:contains("Log in")',
+                    '[role="button"]',
+                    '.login-button',
+                    '#login-button',
+                    'a:contains("Log in")',
+                    'div:contains("Log in")'
+                ];
+    
+                return selectors.map(selector => {
+                    try {
+                        const elements = document.querySelectorAll(selector);
+                        return {
+                            selector,
+                            found: elements.length > 0,
+                            count: elements.length,
+                            texts: Array.from(elements).map(el => el.textContent.trim())
+                        };
+                    } catch (e) {
+                        return { selector, error: e.message };
+                    }
+                });
+            });
+    
+            console.log('\n=== Element Checks ===');
+            console.log(JSON.stringify(elementChecks, null, 2));
+    
+            // Check if page is still loading
+            const isLoading = await page.evaluate(() => document.readyState !== 'complete');
+            console.log('\n=== Page State ===');
+            console.log('Document Ready State:', await page.evaluate(() => document.readyState));
+            console.log('Is Loading:', isLoading);
+    
+            // Log any console messages
+            page.on('console', msg => {
+                console.log('Browser Console:', msg.text());
+            });
+    
+            return {
+                isLoading,
+                elementChecks,
+                domAnalysis,
+                hasContent: content.length > 0,
+                hasButtons: domAnalysis.buttons.length > 0
+            };
+    
         } catch (error) {
-            console.error('Error logging page content:', error);
+            console.error('Error in detailed page logging:', error);
             return { error: error.message };
         }
     }
@@ -572,14 +682,38 @@ async #selectOptionSafely(page, optionValue, optionType) {
     async login(page, credentials) {
         try {
             console.log("Navigating to Sora...");
-            await page.goto('https://sora.com', { 
-                waitUntil: 'networkidle0',
-                timeout: 60000
-            });
-            
 
-                    // Log initial page state
-        const pageState = await this.#logPageContent(page, 'Initial Load');
+
+              // Enable request interception
+        await page.setRequestInterception(true);
+        page.on('request', request => {
+            console.log('Request:', request.url());
+            request.continue();
+        });
+        page.on('response', response => {
+            console.log('Response:', response.url(), response.status());
+        });
+
+        await page.goto('https://sora.com', { 
+            waitUntil: ['networkidle0', 'domcontentloaded', 'load'],
+            timeout: 60000
+        });
+
+        // Initial analysis
+        const initialState = await this.#logPageContent(page, 'Initial Load');
+        
+        if (!initialState.hasButtons) {
+            console.log("No buttons found, waiting for dynamic content...");
+            await page.waitForFunction(() => {
+                return document.querySelectorAll('button').length > 0;
+            }, { timeout: 30000 });
+            
+            // Re-analyze after waiting
+            await this.#logPageContent(page, 'After Dynamic Content Load');
+        }
+
+
+        
         
         // Handle potential blocks
         if (pageState.hasCloudflare || pageState.hasReCaptcha || pageState.hasAccessDenied) {

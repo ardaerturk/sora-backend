@@ -262,7 +262,7 @@ class WebhookController {
                     if (order) {
                         console.log('Triggering video generation for order:', order.id);
                         await videoController.generateVideo({
-                            body: { orderId: order.id }
+                            body: { orderId: order.daimo_id }
                         }, {
                             json: () => ({ success: true })
                         });

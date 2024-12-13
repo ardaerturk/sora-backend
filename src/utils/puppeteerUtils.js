@@ -615,7 +615,7 @@ async #selectOptionSafely(page, optionValue, optionType) {
                 '--disable-gpu',
                 '--disable-software-rasterizer',
                 '--disable-extensions',
-                '--single-process',
+                // '--single-process',
                 '--no-zygote',
                 '--disable-background-networking',
                 '--disable-default-apps',

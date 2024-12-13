@@ -768,39 +768,21 @@ async #selectOptionSafely(page, optionValue, optionType) {
             timeout: 60000
         });
 
-        // Initial analysis
-        const initialState = await this.#logPageContent(page, 'Initial Load');
+        // EXTENSTIVE LOGS //
+        // const initialState = await this.#logPageContent(page, 'Initial Load');
 
-
-        
-        
-        if (!initialState.hasButtons) {
-            console.log("No buttons found, waiting for dynamic content...");
-            await page.waitForFunction(() => {
-                return document.querySelectorAll('button').length > 0;
-            }, { timeout: 30000 });
+        // if (!initialState.hasButtons) {
+        //     console.log("No buttons found, waiting for dynamic content...");
+        //     await page.waitForFunction(() => {
+        //         return document.querySelectorAll('button').length > 0;
+        //     }, { timeout: 30000 });
             
-            // Re-analyze after waiting
-            await this.#logPageContent(page, 'After Dynamic Content Load');
-        }
-
-
-        
-
-        // Handle potential blocks
-        // if (initialState.hasCloudflare || initialState.hasReCaptcha || initialState.hasAccessDenied) {
-        //     console.log("Detected security measure, attempting bypass...");
-
-
-        //       // Retry navigation with different settings
-        //       await page.goto('https://sora.com', {
-        //         waitUntil: ['networkidle0', 'domcontentloaded'],
-        //         timeout: 90000
-        //     });
-            
-        //     // Log retry state
-        //     await this.#logPageContent(page, 'After Retry');
+        //     // Re-analyze after waiting
+        //     await this.#logPageContent(page, 'After Dynamic Content Load');
         // }
+
+
+        
         
         await this.#humanDelay();
             

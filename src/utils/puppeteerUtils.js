@@ -669,29 +669,7 @@ async #selectOptionSafely(page, optionValue, optionType) {
             'Cache-Control': 'max-age=0'
         });
 
-        // Modify WebGL vendor and renderer
-        await page.evaluateOnNewDocument(() => {
-            const newProto = navigator.__proto__;
-            delete newProto.webdriver;
-            navigator.__proto__ = newProto;
-            
-            // Override properties that might reveal automation
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
 
-            // Modify WebGL fingerprint
-            const getParameter = WebGLRenderingContext.prototype.getParameter;
-            WebGLRenderingContext.prototype.getParameter = function(parameter) {
-                if (parameter === 37445) {
-                    return 'Intel Open Source Technology Center';
-                }
-                if (parameter === 37446) {
-                    return 'Mesa DRI Intel(R) HD Graphics (SKL GT2)';
-                }
-                return getParameter.apply(this, arguments);
-            };
-        });
 
         await page.setViewport({ width: 1700, height: 800 });
         await page.setDefaultNavigationTimeout(60000);

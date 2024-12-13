@@ -30,7 +30,6 @@ class PuppeteerService {
         return this.#retryOperation(async () => {
             try {
                 // Clear cookies and cache before each attempt
-                await page.session.clearCache();
                 await page.setCookie();
                 
                 console.log("Navigating to Sora...");

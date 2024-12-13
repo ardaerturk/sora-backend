@@ -5,6 +5,7 @@ const config = require('./config/config');
 const videoController = require('./controllers/videoController');
 const { validateVideoRequest } = require('./middleware/validator');
 const webhookController = require('./controllers/webhookController');
+const videoQueue = require('./services/videoQueue');
 
 const app = express();
 
@@ -34,4 +35,17 @@ app.use((err, req, res, next) => {
 // Start server
 app.listen(config.port, () => {
     console.log(`Server is running on port ${config.port}`);
+});
+
+app.get('/queue-status', async (req, res) => {
+    const counts = await videoQueue.queue.getJobCounts();
+    res.json({
+        counts,
+        timestamp: new Date().toISOString()
+    });
+});
+
+app.get('/job-status/:orderId', async (req, res) => {
+    const status = await videoQueue.getJobStatus(req.params.orderId);
+    res.json(status || { error: 'Job not found' });
 });

@@ -588,8 +588,19 @@ async #selectOptionSafely(page, optionValue, optionType) {
         //     ignoreDefaultArgs: ['--enable-automation'],
         // });
 
+        // const PROXY_SERVER = process.env.PROXY_SERVER; // e.g., '11.22.33.44'
+        // const PROXY_PORT = process.env.PROXY_PORT;     // e.g., '8080'
+        // const PROXY_USER = process.env.PROXY_USERNAME;
+        // const PROXY_PASS = process.env.PROXY_PASSWORD;
+
+
+        const PROXY_SERVER = '166.1.10.167' // e.g., '11.22.33.44'
+        const PROXY_PORT = '59100';     // e.g., '8080'
+        const PROXY_USER = 'gen2456'
+        const PROXY_PASS = 'gHmyybc9BI'
+
         const browser = await puppeteer.launch({
-            headless: 'true', // Use new headless mode
+            headless: 'true',
             defaultViewport: { width: 1280, height: 720 },
             args: [
                 '--no-sandbox',
@@ -612,7 +623,9 @@ async #selectOptionSafely(page, optionValue, optionType) {
                 '--window-size=1280,720',
                 '--disable-blink-features=AutomationControlled',
                 `--user-agent=${userAgent}`,
-                '--remote-debugging-port=9222'  // Enable debugging
+                '--remote-debugging-port=9222',
+                // Proxy configuration
+                `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`
             ],
             executablePath: chromePath,
             ignoreHTTPSErrors: true,
@@ -625,7 +638,23 @@ async #selectOptionSafely(page, optionValue, optionType) {
         });
 
         const page = await browser.newPage();
-        
+
+        await page.authenticate({
+            username: PROXY_USER,
+            password: PROXY_PASS
+        });
+
+          // Verify proxy connection
+          try {
+            // Optional: Check IP through a service
+            const ipCheckResponse = await page.goto('https://api.ipify.org?format=json');
+            const ipData = await ipCheckResponse.json();
+            console.log('Current IP:', ipData.ip);
+        } catch (error) {
+            console.warn('IP check failed:', error);
+        }
+
+
         // Set various headers and properties to avoid detection
         await page.setExtraHTTPHeaders({
             'Accept-Language': 'en-US,en;q=0.9',

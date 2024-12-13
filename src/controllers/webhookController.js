@@ -3,6 +3,8 @@ const videoController = require('./videoController');
 const Queue = require('bull');
 
 // Create a queue for webhook processing
+
+console.log('here')
 const webhookQueue = new Queue('webhook-processing', process.env.REDIS_URL);
 
 class WebhookController {

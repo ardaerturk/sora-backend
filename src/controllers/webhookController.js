@@ -12,7 +12,7 @@ class WebhookController {
 
     async handleWebhook(req, res) {
         const authHeader = req.headers.authorization;
-        const idempotencyKey = req.headers['idempotency-key'];
+        const idempotencyKey = req.headers['Idempotency-Key'];
 
         try {
             // Quick response as required by Daimo
@@ -48,6 +48,8 @@ class WebhookController {
         }
 
         const token = authHeader.split(' ')[1];
+        console.log('token', token)
+        console.log('key', process.env.DAIMO_WEBHOOK_SECRET)
         return token === process.env.DAIMO_WEBHOOK_SECRET;
     }
 

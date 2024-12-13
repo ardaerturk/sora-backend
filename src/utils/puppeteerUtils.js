@@ -8,6 +8,157 @@ class PuppeteerService {
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
     ];
 
+    async #retryOperation(operation, maxAttempts = 3, delayMs = 5000) {
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                console.log(`Attempt ${attempt} of ${maxAttempts}`);
+                return await operation();
+            } catch (error) {
+                console.error(`Attempt ${attempt} failed:`, error);
+                
+                if (attempt === maxAttempts) {
+                    throw new Error(`All ${maxAttempts} attempts failed: ${error.message}`);
+                }
+                
+                console.log(`Waiting ${delayMs/1000} seconds before next attempt...`);
+                await this.#humanDelay(delayMs, delayMs + 1000);
+            }
+        }
+    }
+
+    async loginWithRetry(page, credentials, maxAttempts = 3) {
+        return this.#retryOperation(async () => {
+            try {
+                // Clear cookies and cache before each attempt
+                await page.session.clearCache();
+                await page.setCookie();
+                
+                console.log("Navigating to Sora...");
+                
+                // Enable request interception
+                await page.setRequestInterception(true);
+                page.on('request', request => {
+                    console.log('Request:', request.url());
+                    request.continue();
+                });
+                page.on('response', response => {
+                    console.log('Response:', response.url(), response.status());
+                });
+
+                // Navigate with multiple wait conditions
+                const response = await page.goto('https://sora.com', { 
+                    waitUntil: ['networkidle0', 'domcontentloaded', 'load'],
+                    timeout: 60000
+                });
+
+                if (!response.ok()) {
+                    throw new Error(`Page load failed with status: ${response.status()}`);
+                }
+
+                await this.#humanDelay();
+                
+                console.log("Looking for login button...");
+                
+                // Wait for any content to load
+                await page.waitForFunction(() => document.body.innerHTML.length > 0, {
+                    timeout: 10000
+                });
+
+                // Log page state
+                const pageContent = await page.content();
+                console.log('Page content length:', pageContent.length);
+                
+                // Find login button with multiple strategies
+                let loginButton;
+                try {
+                    // Strategy 1: Wait for button with text
+                    await page.waitForFunction(() => {
+                        const buttons = Array.from(document.querySelectorAll('button'));
+                        return buttons.some(button => button.textContent.includes('Log in'));
+                    }, { timeout: 10000 });
+
+                    loginButton = await page.evaluateHandle(() => {
+                        const buttons = Array.from(document.querySelectorAll('button'));
+                        return buttons.find(button => button.textContent.includes('Log in'));
+                    });
+                } catch (error) {
+                    console.log('First login button strategy failed, trying alternatives...');
+                    
+                    // Strategy 2: Try different selectors
+                    const selectors = [
+                        'button:has-text("Log in")',
+                        '[role="button"]:has-text("Log in")',
+                        'a:has-text("Log in")',
+                        '.login-button',
+                        '#login-button'
+                    ];
+
+                    for (const selector of selectors) {
+                        try {
+                            loginButton = await page.waitForSelector(selector, { timeout: 5000 });
+                            if (loginButton) break;
+                        } catch (e) {
+                            continue;
+                        }
+                    }
+                }
+
+                if (!loginButton) {
+                    throw new Error("Could not find login button");
+                }
+
+                // Move mouse and click
+                await this.#humanMove(page, loginButton);
+                await loginButton.click();
+                await this.#humanDelay(1000, 2000);
+
+                // Handle login form
+                console.log("Entering email...");
+                const emailSelector = 'input[placeholder="Email address"]';
+                await page.waitForSelector(emailSelector, { timeout: 10000 });
+                await this.#humanType(page, emailSelector, credentials.email);
+                
+                await this.#humanDelay(300, 800);
+                await page.keyboard.press('Enter');
+
+                console.log("Entering password...");
+                const passwordSelector = 'input#password';
+                await page.waitForSelector(passwordSelector, { timeout: 10000 });
+                await this.#humanType(page, passwordSelector, credentials.password);
+                
+                await this.#humanDelay(300, 800);
+                await page.keyboard.press('Enter');
+
+                console.log("Waiting for navigation...");
+                
+                // Wait for navigation with multiple conditions
+                await Promise.race([
+                    page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 60000 }),
+                    page.waitForSelector('.grid-cols-4', { timeout: 60000 }), // Add any selector that indicates successful login
+                    page.waitForFunction(
+                        () => window.location.href.includes('/dashboard'),
+                        { timeout: 60000 }
+                    )
+                ]);
+
+                // Verify login success
+                const currentUrl = await page.url();
+                console.log('Current URL after login:', currentUrl);
+
+                if (currentUrl === 'https://sora.com') {
+                    throw new Error('Login might have failed - still on login page');
+                }
+
+                console.log("Login successful");
+                
+            } catch (error) {
+                console.error("Login attempt failed:", error);
+                throw error; // Throw to trigger retry
+            }
+        }, maxAttempts);
+    }
+    
+
     async #logPageContent(page, context = '') {
         try {
             const content = await page.content();
@@ -892,6 +1043,14 @@ async #selectOptionSafely(page, optionValue, optionType) {
 
         console.log(prompt, resolution, duration, aspectRatio);
         try {
+
+             // First ensure we're logged in
+             await this.loginWithRetry(page, {
+                email: process.env.SORA_EMAIL,
+                password: process.env.SORA_PASSWORD
+            });
+
+            
             console.log("Preparing to generate video...");
             await this.#selectOptionSafely(page, aspectRatio, 'aspect ratio');
 

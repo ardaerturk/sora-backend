@@ -250,7 +250,6 @@ class WebhookController {
                         .from('orders_2025cool')
                         .update({
                             payment_status: 'payment_completed',
-                            payment_completed_chain_id: chainId,
                             payment_completed_tx_hash: txHash,
                             updated_at: new Date().toISOString()
                         })

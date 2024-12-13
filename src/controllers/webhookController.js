@@ -190,10 +190,10 @@ class WebhookController {
             event,
             idempotencyKey
         });
-
+    
         try {
             const { type, paymentId, chainId, txHash } = event;
-
+    
             // First, record the webhook to prevent duplicates
             console.log('Recording processed webhook');
             const { error: insertError } = await supabase
@@ -203,30 +203,47 @@ class WebhookController {
                     event_type: type,
                     payment_id: paymentId
                 }]);
-
+    
             if (insertError) {
                 console.error('Error recording processed webhook:', insertError);
                 throw insertError;
             }
-
-            // Then process the event
+    
+            // Check current order status before processing
+            const { data: currentOrder, error: fetchError } = await supabase
+                .from('orders_2025cool')
+                .select('payment_status')
+                .eq('daimo_id', paymentId)
+                .single();
+    
+            if (fetchError) {
+                console.error('Error fetching current order status:', fetchError);
+                throw fetchError;
+            }
+    
+            // Then process the event based on current status
             switch (type) {
                 case 'payment_started': {
                     console.log('Processing payment_started event');
-                    const { error } = await supabase
-                        .from('orders_2025cool')
-                        .update({
-                            payment_status: 'payment_started',
-                            payment_chain_id: chainId,
-                            payment_tx_hash: txHash,
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('daimo_id', paymentId);
-
-                    if (error) throw error;
+                    // Only update if not already completed
+                    if (currentOrder.payment_status !== 'payment_completed') {
+                        const { error } = await supabase
+                            .from('orders_2025cool')
+                            .update({
+                                payment_status: 'payment_started',
+                                payment_chain_id: chainId,
+                                payment_tx_hash: txHash,
+                                updated_at: new Date().toISOString()
+                            })
+                            .eq('daimo_id', paymentId);
+    
+                        if (error) throw error;
+                    } else {
+                        console.log('Skipping payment_started update as order is already completed');
+                    }
                     break;
                 }
-
+    
                 case 'payment_completed': {
                     console.log('Processing payment_completed event');
                     const { data: order, error } = await supabase
@@ -240,9 +257,9 @@ class WebhookController {
                         .eq('daimo_id', paymentId)
                         .select()
                         .single();
-
+    
                     if (error) throw error;
-
+    
                     if (order) {
                         console.log('Triggering video generation for order:', order.id);
                         await videoController.generateVideo({
@@ -253,9 +270,10 @@ class WebhookController {
                     }
                     break;
                 }
-
+    
                 case 'payment_bounced': {
                     console.log('Processing payment_bounced event');
+                    // Always update bounced status as it's a terminal state
                     const { error } = await supabase
                         .from('orders_2025cool')
                         .update({
@@ -265,14 +283,14 @@ class WebhookController {
                             updated_at: new Date().toISOString()
                         })
                         .eq('daimo_id', paymentId);
-
+    
                     if (error) throw error;
                     break;
                 }
             }
-
+    
             console.log('Webhook processing completed successfully');
-
+    
         } catch (error) {
             console.error('Error processing webhook event:', error);
             throw error;

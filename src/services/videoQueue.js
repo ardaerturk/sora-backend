@@ -1,21 +1,41 @@
 const Queue = require('bull');
-const Redis = require('ioredis');
+const redis = require('redis');
 const puppeteerService = require('../utils/puppeteerUtils');
 const emailService = require('./emailService');
 const supabase = require('../config/supabase');
 
 class VideoQueue {
     constructor() {
+        // Initialize Redis client
+        this.redisClient = redis.createClient({
+            url: process.env.REDIS_URL,
+            socket: {
+                tls: process.env.REDIS_URL.includes('rediss:'),
+                rejectUnauthorized: false,
+            }
+        });
+
+        // Handle Redis connection events
+        this.redisClient.on('connect', () => {
+            console.log('Redis client connected');
+        });
+
+        this.redisClient.on('error', (err) => {
+            console.error('Redis client error:', err);
+        });
+
+        // Initialize Bull queue with Redis client
         this.queue = new Queue('video-generation', {
-            redis: {
-                port: process.env.REDIS_PORT,
-                host: process.env.REDIS_HOST,
-                password: process.env.REDIS_PASSWORD,
-                tls: {
-                    rejectUnauthorized: false,
-                    requestCert: true,
-                    agent: false,
-                    sslProtocol: 'TLSv1_2_method'
+            createClient: (type) => {
+                switch (type) {
+                    case 'client':
+                        return this.redisClient;
+                    case 'subscriber':
+                        return this.redisClient.duplicate();
+                    case 'bclient':
+                        return this.redisClient.duplicate();
+                    default:
+                        return this.redisClient;
                 }
             },
             defaultJobOptions: {
@@ -29,7 +49,20 @@ class VideoQueue {
             }
         });
 
+        // Connect to Redis
+        this.connect();
         this.setupQueueHandlers();
+    }
+
+    async connect() {
+        try {
+            await this.redisClient.connect();
+            console.log('Connected to Redis successfully');
+        } catch (error) {
+            console.error('Failed to connect to Redis:', error);
+            // Implement retry logic if needed
+            setTimeout(() => this.connect(), 5000);
+        }
     }
 
     setupQueueHandlers() {
@@ -51,6 +84,15 @@ class VideoQueue {
                 const { browser, page } = await puppeteerService.initializeBrowser();
 
                 try {
+                    // Update order status to processing
+                    await supabase
+                        .from('orders_2025cool')
+                        .update({
+                            status: 'processing',
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('daimo_id', orderId);
+
                     // Generate video
                     const result = await puppeteerService.generateVideo(page, {
                         prompt: order.prompt,
@@ -116,8 +158,9 @@ class VideoQueue {
 
     async addJob(orderId) {
         return this.queue.add({ orderId }, {
-            jobId: orderId, // Use orderId as jobId for deduplication
-            removeOnComplete: true
+            jobId: orderId,
+            removeOnComplete: true,
+            attempts: 3
         });
     }
 
@@ -134,6 +177,25 @@ class VideoQueue {
             timestamp: job.timestamp
         };
     }
+
+    async cleanup() {
+        try {
+            await this.redisClient.quit();
+            await this.queue.close();
+        } catch (error) {
+            console.error('Error during cleanup:', error);
+        }
+    }
 }
 
-module.exports = new VideoQueue();
+// Create singleton instance
+const videoQueue = new VideoQueue();
+
+// Handle process termination
+process.on('SIGTERM', async () => {
+    console.log('SIGTERM received. Cleaning up...');
+    await videoQueue.cleanup();
+    process.exit(0);
+});
+
+module.exports = videoQueue;

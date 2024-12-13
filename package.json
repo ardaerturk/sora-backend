@@ -24,6 +24,7 @@
     "helmet": "^8.0.0",
     "ioredis": "^5.4.1",
     "puppeteer": "^23.8.0",
+    "redis": "^4.7.0",
     "resend": "^4.0.1",
     "throng": "^5.0.0",
     "winston": "^3.17.0"

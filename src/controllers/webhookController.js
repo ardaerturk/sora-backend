@@ -243,29 +243,29 @@ class WebhookController {
                     }
                     break;
                 }
-                
-                case 'payment_completed': {
-                    console.log('Processing payment_completed event');
-                    const { data: order, error } = await supabase
-                        .from('orders_2025cool')
-                        .update({
-                            payment_status: 'payment_completed',
-                            payment_completed_chain_id: chainId,
-                            payment_completed_tx_hash: txHash,
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('daimo_id', paymentId)
-                        .select()
-                        .single();
-                
-                    if (error) throw error;
-                
-                    if (order) {
-                        console.log('Adding video generation job to queue:', order.id);
-                        await videoQueue.addJob(order.daimo_id);
-                    }
-                    break;
-                }
+
+               case 'payment_completed': {
+    console.log('Processing payment_completed event');
+    const { data: order, error } = await supabase
+        .from('orders_2025cool')
+        .update({
+            payment_status: 'payment_completed',
+            payment_completed_chain_id: chainId,
+            payment_completed_tx_hash: txHash,
+            updated_at: new Date().toISOString()
+        })
+        .eq('daimo_id', paymentId)
+        .select()
+        .single();
+
+    if (error) throw error;
+
+    if (order) {
+        console.log('Adding video generation job to queue:', order.daimo_id);
+        await videoQueue.addJob(order.daimo_id);
+    }
+    break;
+}
     
                 case 'payment_bounced': {
                     console.log('Processing payment_bounced event');

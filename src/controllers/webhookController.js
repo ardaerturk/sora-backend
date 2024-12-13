@@ -121,7 +121,30 @@ class WebhookController {
         }
     }
 
-    // ... rest of your methods ...
+    verifyToken(authHeader) {
+        console.log('authorization', authHeader)
+        if (!authHeader || !authHeader.startsWith('Basic ')) {
+            return false;
+        }
+
+        const token = authHeader.split(' ')[1];
+
+        console.log('verification passed', token === process.env.DAIMO_WEBHOOK_SECRET)
+
+        return token === process.env.DAIMO_WEBHOOK_SECRET;
+    }   
+
+    
+
+    async isEventProcessed(idempotencyKey) {
+        const { data } = await supabase
+            .from('processed_webhooks')
+            .select('payment_id')
+            .eq('idempotency_key', idempotencyKey)
+            .single();
+
+        return !!data;
+    }
 
     async processWebhookEvent(event, idempotencyKey) {
         console.log('Processing webhook event:', {

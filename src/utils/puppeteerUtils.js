@@ -738,59 +738,59 @@ async #selectOptionSafely(page, optionValue, optionType) {
         const PROXY_USER = 'gen24560jNAh'
         const PROXY_PASS = 'vBSmMBABjC'
 
-        const browser = await puppeteer.launch({
-            headless: false,
-            defaultViewport: { width: 1700, height: 800 },
-            args: [
-                '--start-maximized',
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-blink-features=AutomationControlled', // Prevents detection
-                `--user-agent=${userAgent}`,
-                                `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`
-            ],
-            ignoreDefaultArgs: ['--enable-automation'],
-        });
-
-
-
-
         // const browser = await puppeteer.launch({
-        //     headless: 'true',
-        //     defaultViewport: { width: 1280, height: 720 },
+        //     headless: false,
+        //     defaultViewport: { width: 1700, height: 800 },
         //     args: [
+        //         '--start-maximized',
         //         '--no-sandbox',
         //         '--disable-setuid-sandbox',
-        //         '--disable-dev-shm-usage',
-        //         // '--disable-gpu',
-        //         // '--disable-software-rasterizer',
-        //         // '--disable-extensions',
-        //         // '--single-process',
-        //         // '--no-zygote',
-        //         // '--disable-background-networking',
-        //         // '--disable-default-apps',
-        //         // '--disable-sync',
-        //         // '--disable-translate',
-        //         // '--hide-scrollbars',
-        //         // '--metrics-recording-only',
-        //         // '--mute-audio',
-        //         // '--no-first-run',
-        //         // '--safebrowsing-disable-auto-update',
-        //         // '--window-size=1280,720',
-        //         // '--disable-blink-features=AutomationControlled',
+        //         '--disable-blink-features=AutomationControlled', // Prevents detection
         //         `--user-agent=${userAgent}`,
-        //         '--remote-debugging-port=9222',
-        //         `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`,
+        //                         `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`
         //     ],
-        //     executablePath: chromePath,
-        //     ignoreHTTPSErrors: true,
-        //     dumpio: true,
-        //     env: {
-        //         ...process.env,
-        //         CHROME_PATH: chromePath,
-        //         CHROMEDRIVER_PATH: '/app/.chrome-for-testing/chromedriver-linux64/chromedriver'
-        //     }
+        //     ignoreDefaultArgs: ['--enable-automation'],
         // });
+
+
+
+
+        const browser = await puppeteer.launch({
+            headless: 'true',
+            defaultViewport: { width: 1280, height: 720 },
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                // '--disable-gpu',
+                // '--disable-software-rasterizer',
+                // '--disable-extensions',
+                // '--single-process',
+                // '--no-zygote',
+                // '--disable-background-networking',
+                // '--disable-default-apps',
+                // '--disable-sync',
+                // '--disable-translate',
+                // '--hide-scrollbars',
+                // '--metrics-recording-only',
+                // '--mute-audio',
+                // '--no-first-run',
+                // '--safebrowsing-disable-auto-update',
+                // '--window-size=1280,720',
+                // '--disable-blink-features=AutomationControlled',
+                `--user-agent=${userAgent}`,
+                '--remote-debugging-port=9222',
+                `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`,
+            ],
+            executablePath: chromePath,
+            ignoreHTTPSErrors: true,
+            dumpio: true,
+            env: {
+                ...process.env,
+                CHROME_PATH: chromePath,
+                CHROMEDRIVER_PATH: '/app/.chrome-for-testing/chromedriver-linux64/chromedriver'
+            }
+        });
 
         const page = await browser.newPage();
 

@@ -738,11 +738,6 @@ async #selectOptionSafely(page, optionValue, optionType) {
 
 
         
-        await page.goto('https://sora.com', { 
-            waitUntil: 'networkidle0',
-            timeout: 60000
-        });
-        
         
         if (!initialState.hasButtons) {
             console.log("No buttons found, waiting for dynamic content...");
@@ -763,7 +758,7 @@ async #selectOptionSafely(page, optionValue, optionType) {
 
 
               // Retry navigation with different settings
-              await page.goto('https://sora.com/library', {
+              await page.goto('https://sora.com', {
                 waitUntil: ['networkidle0', 'domcontentloaded'],
                 timeout: 90000
             });

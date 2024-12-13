@@ -738,59 +738,59 @@ async #selectOptionSafely(page, optionValue, optionType) {
         const PROXY_USER = 'gen24560jNAh'
         const PROXY_PASS = 'vBSmMBABjC'
 
-        // const browser = await puppeteer.launch({
-        //     headless: false,
-        //     defaultViewport: { width: 1700, height: 800 },
-        //     args: [
-        //         '--start-maximized',
-        //         '--no-sandbox',
-        //         '--disable-setuid-sandbox',
-        //         '--disable-blink-features=AutomationControlled', // Prevents detection
-        //         `--user-agent=${userAgent}`,
-        //                         `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`
-        //     ],
-        //     ignoreDefaultArgs: ['--enable-automation'],
-        // });
-
-
-
-
         const browser = await puppeteer.launch({
-            headless: 'true',
-            defaultViewport: { width: 1280, height: 720 },
+            headless: false,
+            defaultViewport: { width: 1700, height: 800 },
             args: [
+                '--start-maximized',
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                // '--disable-gpu',
-                // '--disable-software-rasterizer',
-                // '--disable-extensions',
-                // '--single-process',
-                // '--no-zygote',
-                // '--disable-background-networking',
-                // '--disable-default-apps',
-                // '--disable-sync',
-                // '--disable-translate',
-                // '--hide-scrollbars',
-                // '--metrics-recording-only',
-                // '--mute-audio',
-                // '--no-first-run',
-                // '--safebrowsing-disable-auto-update',
-                // '--window-size=1280,720',
-                // '--disable-blink-features=AutomationControlled',
+                '--disable-blink-features=AutomationControlled', // Prevents detection
                 `--user-agent=${userAgent}`,
-                '--remote-debugging-port=9222',
-                `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`,
+                                `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`
             ],
-            executablePath: chromePath,
-            ignoreHTTPSErrors: true,
-            dumpio: true,
-            env: {
-                ...process.env,
-                CHROME_PATH: chromePath,
-                CHROMEDRIVER_PATH: '/app/.chrome-for-testing/chromedriver-linux64/chromedriver'
-            }
+            ignoreDefaultArgs: ['--enable-automation'],
         });
+
+
+
+
+        // const browser = await puppeteer.launch({
+        //     headless: 'true',
+        //     defaultViewport: { width: 1280, height: 720 },
+        //     args: [
+        //         '--no-sandbox',
+        //         '--disable-setuid-sandbox',
+        //         '--disable-dev-shm-usage',
+        //         // '--disable-gpu',
+        //         // '--disable-software-rasterizer',
+        //         // '--disable-extensions',
+        //         // '--single-process',
+        //         // '--no-zygote',
+        //         // '--disable-background-networking',
+        //         // '--disable-default-apps',
+        //         // '--disable-sync',
+        //         // '--disable-translate',
+        //         // '--hide-scrollbars',
+        //         // '--metrics-recording-only',
+        //         // '--mute-audio',
+        //         // '--no-first-run',
+        //         // '--safebrowsing-disable-auto-update',
+        //         // '--window-size=1280,720',
+        //         // '--disable-blink-features=AutomationControlled',
+        //         `--user-agent=${userAgent}`,
+        //         '--remote-debugging-port=9222',
+        //         `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`,
+        //     ],
+        //     executablePath: chromePath,
+        //     ignoreHTTPSErrors: true,
+        //     dumpio: true,
+        //     env: {
+        //         ...process.env,
+        //         CHROME_PATH: chromePath,
+        //         CHROMEDRIVER_PATH: '/app/.chrome-for-testing/chromedriver-linux64/chromedriver'
+        //     }
+        // });
 
         const page = await browser.newPage();
 
@@ -900,127 +900,179 @@ async #selectOptionSafely(page, optionValue, optionType) {
         try {
             console.log("Navigating to Sora...");
     
-            // Set up request interception with proper handling
-            const requestHandled = new Set();
-            await page.setRequestInterception(true);
-            
-            page.on('request', request => {
-                const url = request.url();
-                if (requestHandled.has(url)) {
-                    // Skip if already handled
-                    return;
-                }
-                requestHandled.add(url);
-    
-                console.log('Request:', url);
-                try {
-                    request.continue();
-                } catch (error) {
-                    console.warn('Request continue failed:', error.message);
-                }
+            // Navigate to page
+            const response = await page.goto('https://sora.com', { 
+                waitUntil: ['networkidle0', 'domcontentloaded', 'load'],
+                timeout: 60000
             });
     
-            page.on('response', response => {
-                console.log('Response:', response.url(), response.status());
-            });
-    
-            // Clear request handlers on navigation
-            page.on('framenavigated', () => {
-                requestHandled.clear();
-            });
-    
-            // Navigate with proper error handling
-            try {
-                await page.goto('https://sora.com', { 
-                    waitUntil: ['networkidle0', 'domcontentloaded', 'load'],
-                    timeout: 60000
-                });
-            } catch (error) {
-                console.error('Navigation failed:', error);
-                // Disable request interception if navigation fails
-                await page.setRequestInterception(false);
-                throw error;
+            if (!response.ok()) {
+                throw new Error(`Navigation failed with status: ${response.status()}`);
             }
     
-            await this.#humanDelay();
-            
-            console.log("Looking for login button...");
-        
-        // Log DOM structure around where login button should be
-        const buttonDebug = await page.evaluate(() => {
-            const buttons = Array.from(document.querySelectorAll('button'));
-            return buttons.map(button => ({
-                text: button.textContent,
-                classes: button.className,
-                isVisible: button.offsetParent !== null,
-                html: button.outerHTML
-            }));
-        });
-        console.log('Available buttons:', buttonDebug);
-
-            
-            // Wait for the button to be rendered
-            await page.waitForFunction(() => {
-                const buttons = Array.from(document.querySelectorAll('button'));
-                return buttons.some(button => button.textContent.includes('Log in'));
-            }, { timeout: 10000 });
+            await this.#humanDelay(2000); // Longer initial delay
     
-            // Find the login button
-            const loginButton = await page.evaluateHandle(() => {
-                const buttons = Array.from(document.querySelectorAll('button'));
-                return buttons.find(button => button.textContent.includes('Log in'));
-            });
+            console.log("Looking for login button...");
+    
+            // Wait for page content
+            await page.waitForFunction(
+                () => document.body && document.body.innerHTML.length > 0,
+                { timeout: 10000 }
+            );
+    
+            // Find login button - multiple strategies
+            let loginButton = null;
+    
+            // Strategy 1: Direct evaluation
+            try {
+                loginButton = await page.evaluateHandle(() => {
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    return buttons.find(button => 
+                        button.textContent && 
+                        button.textContent.trim() === 'Log in' &&
+                        button.closest('div.pointer-events-auto')
+                    );
+                });
+    
+                const buttonExists = await loginButton.asElement();
+                if (!buttonExists) {
+                    loginButton = null;
+                    throw new Error('Button not found with strategy 1');
+                }
+            } catch (error) {
+                console.log('Strategy 1 failed:', error.message);
+            }
+    
+            // Strategy 2: Wait for selector
+            if (!loginButton) {
+                try {
+                    loginButton = await page.waitForSelector(
+                        'div.pointer-events-auto button:has-text("Log in")',
+                        { timeout: 5000 }
+                    );
+                } catch (error) {
+                    console.log('Strategy 2 failed:', error.message);
+                }
+            }
+    
+            // Strategy 3: XPath
+            if (!loginButton) {
+                try {
+                    const [button] = await page.$x("//button[contains(text(), 'Log in')]");
+                    if (button) {
+                        loginButton = button;
+                    }
+                } catch (error) {
+                    console.log('Strategy 3 failed:', error.message);
+                }
+            }
     
             if (!loginButton) {
-                throw new Error("Could not find login button");
+                // Take debug screenshot
+                await page.screenshot({ 
+                    path: `login-button-not-found-${Date.now()}.png`,
+                    fullPage: true 
+                });
+                throw new Error('Login button not found with any strategy');
             }
     
-            // Move mouse and click
-            await this.#humanMove(page, loginButton);
-            await loginButton.click();
-            await this.#humanDelay(1000, 2000);
+            // Verify button is clickable
+            const isClickable = await loginButton.evaluate(button => {
+                const style = window.getComputedStyle(button);
+                return style.display !== 'none' && 
+                       style.visibility !== 'hidden' && 
+                       style.opacity !== '0' &&
+                       button.offsetWidth > 0 &&
+                       button.offsetHeight > 0;
+            });
     
-            // Rest of the login process
-            console.log("Entering email...");
+            if (!isClickable) {
+                throw new Error('Found login button but it is not clickable');
+            }
+    
+            // Click button with retry
+            let clickSuccess = false;
+            for (let attempt = 0; attempt < 3 && !clickSuccess; attempt++) {
+                try {
+                    await this.#humanMove(page, loginButton);
+                    await this.#humanDelay(500);
+                    await loginButton.click();
+                    clickSuccess = true;
+                    console.log('Successfully clicked login button');
+                } catch (error) {
+                    console.log(`Click attempt ${attempt + 1} failed:`, error.message);
+                    if (attempt === 2) throw error;
+                    await this.#humanDelay(1000);
+                }
+            }
+    
+            // Wait for email input
+            console.log("Waiting for email input...");
             const emailSelector = 'input[placeholder="Email address"]';
-            await page.waitForSelector(emailSelector);
+            await page.waitForSelector(emailSelector, { timeout: 10000 });
+            
+            // Type email
+            console.log("Entering email...");
             await this.#humanType(page, emailSelector, credentials.email);
-            
-            await this.#humanDelay(300, 800);
+            await this.#humanDelay(500);
             await page.keyboard.press('Enter');
     
-            console.log("Entering password...");
+            // Wait for password input
+            console.log("Waiting for password input...");
             const passwordSelector = 'input#password';
-            await page.waitForSelector(passwordSelector);
-            await this.#humanType(page, passwordSelector, credentials.password);
+            await page.waitForSelector(passwordSelector, { timeout: 10000 });
             
-            await this.#humanDelay(300, 800);
+            // Type password
+            console.log("Entering password...");
+            await this.#humanType(page, passwordSelector, credentials.password);
+            await this.#humanDelay(500);
             await page.keyboard.press('Enter');
     
-            console.log("Waiting for navigation...");
-            await page.waitForNavigation({ waitUntil: 'networkidle0' });
- 
-            
+            // Wait for navigation with multiple success conditions
+            console.log("Waiting for successful login...");
+            try {
+                await Promise.race([
+                    page.waitForNavigation({ timeout: 30000 }),
+                    page.waitForSelector('.grid-cols-4', { timeout: 30000 }),
+                    page.waitForFunction(
+                        () => !window.location.href.includes('/login'),
+                        { timeout: 30000 }
+                    )
+                ]);
+            } catch (error) {
+                console.error('Navigation after login failed:', error.message);
+                await page.screenshot({ 
+                    path: `login-navigation-failed-${Date.now()}.png`,
+                    fullPage: true 
+                });
+                throw new Error('Failed to navigate after login');
+            }
+    
+            // Verify login success
+            const currentUrl = await page.url();
+            console.log('Current URL after login:', currentUrl);
+    
+            if (currentUrl.includes('login') || currentUrl === 'https://sora.com') {
+                throw new Error('Login appears to have failed - still on login page');
+            }
+    
+            console.log("Login successful");
+            await this.#humanDelay(1000);
+    
         } catch (error) {
-            // Ensure request interception is disabled on error
+            console.error("Login failed:", error.message);
+            // Take error screenshot
             try {
-                await page.setRequestInterception(false);
-            } catch (e) {
-                console.warn('Failed to disable request interception:', e);
+                await page.screenshot({ 
+                    path: `login-error-${Date.now()}.png`,
+                    fullPage: true 
+                });
+            } catch (screenshotError) {
+                console.error('Failed to take error screenshot:', screenshotError.message);
             }
-            
-            console.error("Login failed:", error);
             throw error;
-        } finally {
-            // Clean up
-            try {
-                await page.setRequestInterception(false);
-            } catch (e) {
-                console.warn('Failed to disable request interception in cleanup:', e);
-            }
         }
     }
-
 
     async #isElementVisible(page, selector) {
         try {

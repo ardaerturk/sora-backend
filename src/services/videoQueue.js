@@ -6,35 +6,35 @@ const supabase = require('../config/supabase');
 
 class VideoQueue {
     constructor() {
-        this.initializeQueue();
+        this.initializeRedis();
     }
 
-    async initializeQueue() {
+    async initializeRedis() {
         try {
-            // Initialize Redis client
-            const redisClient = redis.createClient({
+            // Create Redis client with proper TLS configuration
+            this.redisClient = redis.createClient({
                 url: process.env.REDIS_URL,
                 socket: {
-                    tls: process.env.REDIS_URL.includes('rediss:'),
+                    tls: true,
                     rejectUnauthorized: false
                 }
             });
 
-            // Handle Redis connection events
-            redisClient.on('connect', () => {
+            // Redis event handlers
+            this.redisClient.on('connect', () => {
                 console.log('Redis client connected');
             });
 
-            redisClient.on('error', (err) => {
+            this.redisClient.on('error', (err) => {
                 console.error('Redis client error:', err);
             });
 
             // Connect to Redis
-            await redisClient.connect();
+            await this.redisClient.connect();
 
-            // Initialize Bull queue with Redis client
+            // Initialize Bull queue using the Redis client
             this.queue = new Queue('video-generation', {
-                createClient: () => redisClient,
+                createClient: () => this.redisClient,
                 defaultJobOptions: {
                     attempts: 3,
                     backoff: {
@@ -50,14 +50,13 @@ class VideoQueue {
             console.log('Video queue initialized successfully');
 
         } catch (error) {
-            console.error('Failed to initialize video queue:', error);
+            console.error('Failed to initialize Redis:', error);
             throw error;
         }
     }
 
     setupQueueHandlers() {
-        // Process one job at a time
-        this.queue.process(1, async (job) => {
+        this.queue.process(async (job) => {
             console.log(`Processing video generation job ${job.id}`);
             const { orderId } = job.data;
             let browser = null;
@@ -71,15 +70,6 @@ class VideoQueue {
                     .single();
 
                 if (error) throw new Error(`Failed to fetch order: ${error.message}`);
-
-                // Update status to processing
-                await supabase
-                    .from('orders_2025cool')
-                    .update({
-                        status: 'processing',
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('daimo_id', orderId);
 
                 // Initialize browser for this job
                 const { browser: newBrowser, page } = await puppeteerService.initializeBrowser();
@@ -126,20 +116,14 @@ class VideoQueue {
                     .eq('daimo_id', orderId);
 
                 throw error;
-
             } finally {
                 // Always close browser
                 if (browser) {
-                    try {
-                        await browser.close();
-                    } catch (error) {
-                        console.error('Error closing browser:', error);
-                    }
+                    await browser.close();
                 }
             }
         });
 
-        // Queue event handlers
         this.queue.on('completed', (job, result) => {
             console.log(`Job ${job.id} completed:`, result);
         });
@@ -151,55 +135,57 @@ class VideoQueue {
         this.queue.on('error', (error) => {
             console.error('Queue error:', error);
         });
-
-        // Clean old jobs
-        this.queue.on('cleaned', (jobs, type) => {
-            console.log('Cleaned %s %s jobs', jobs.length, type);
-        });
     }
 
     async addJob(orderId) {
-        // Check if job already exists
-        const existingJob = await this.queue.getJob(orderId);
-        if (existingJob) {
-            const state = await existingJob.getState();
-            console.log(`Job ${orderId} already exists with state:`, state);
-            return existingJob;
+        try {
+            return await this.queue.add({ orderId }, {
+                jobId: orderId, // Use orderId as jobId for deduplication
+                removeOnComplete: true
+            });
+        } catch (error) {
+            console.error('Failed to add job to queue:', error);
+            throw error;
         }
-
-        // Add new job
-        return this.queue.add(
-            { orderId },
-            {
-                jobId: orderId,
-                removeOnComplete: true,
-                removeOnFail: false
-            }
-        );
     }
 
     async getJobStatus(orderId) {
-        const job = await this.queue.getJob(orderId);
-        if (!job) return null;
+        try {
+            const job = await this.queue.getJob(orderId);
+            if (!job) return null;
 
-        const state = await job.getState();
-        return {
-            id: job.id,
-            state,
-            progress: job._progress,
-            failedReason: job.failedReason,
-            timestamp: job.timestamp,
-            attemptsMade: job.attemptsMade
-        };
+            const state = await job.getState();
+            return {
+                id: job.id,
+                state,
+                progress: job._progress,
+                failedReason: job.failedReason,
+                timestamp: job.timestamp
+            };
+        } catch (error) {
+            console.error('Failed to get job status:', error);
+            return { error: error.message };
+        }
     }
 
-    async cleanOldJobs() {
-        // Clean completed jobs older than 1 hour
-        await this.queue.clean(3600000, 'completed');
-        // Clean failed jobs older than 24 hours
-        await this.queue.clean(24 * 3600000, 'failed');
+    async cleanup() {
+        try {
+            await this.redisClient.quit();
+            await this.queue.close();
+        } catch (error) {
+            console.error('Error during cleanup:', error);
+        }
     }
 }
 
-// Export singleton instance
-module.exports = new VideoQueue();
+// Create singleton instance
+const videoQueue = new VideoQueue();
+
+// Handle process termination
+process.on('SIGTERM', async () => {
+    console.log('SIGTERM received. Cleaning up...');
+    await videoQueue.cleanup();
+    process.exit(0);
+});
+
+module.exports = videoQueue;

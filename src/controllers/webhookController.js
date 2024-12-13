@@ -1,124 +1,134 @@
 const supabase = require('../config/supabase');
 const videoController = require('./videoController');
 const Queue = require('bull');
-const Redis = require('ioredis');
-
-// Parse Redis URL and configure SSL
-const parseRedisUrl = (url) => {
-    try {
-        const parsedUrl = new URL(url);
-        return {
-            host: parsedUrl.hostname,
-            port: parsedUrl.port,
-            password: parsedUrl.password,
-            username: parsedUrl.username,
-            db: parsedUrl.pathname ? parsedUrl.pathname.substring(1) : 0,
-            tls: {
-                rejectUnauthorized: false,
-                requestCert: true,
-                agent: false,
-                // For Heroku Redis
-                sslProtocol: 'TLSv1_2_method'
-            }
-        };
-    } catch (error) {
-        console.error('Failed to parse Redis URL:', error);
-        return null;
-    }
-};
-
-// Initialize Redis and Queue
-let webhookQueue;
-const initializeQueue = () => {
-    try {
-        const redisConfig = parseRedisUrl(process.env.REDIS_URL);
-        if (!redisConfig) {
-            throw new Error('Invalid Redis URL');
-        }
-
-        console.log('Initializing Redis with config:', {
-            host: redisConfig.host,
-            port: redisConfig.port,
-            tls: !!redisConfig.tls
-        });
-
-        // Create Redis client
-        const client = new Redis({
-            ...redisConfig,
-            maxRetriesPerRequest: 1,
-            enableReadyCheck: false,
-            retryStrategy: (times) => {
-                if (times > 3) {
-                    console.log('Max Redis retries reached');
-                    return null;
-                }
-                const delay = Math.min(times * 100, 3000);
-                console.log(`Retrying Redis connection in ${delay}ms`);
-                return delay;
-            },
-            reconnectOnError: (err) => {
-                console.log('Redis reconnect on error:', err.message);
-                return true;
-            }
-        });
-
-        client.on('connect', () => {
-            console.log('Redis client connected');
-        });
-
-        client.on('error', (error) => {
-            console.error('Redis client error:', error);
-        });
-
-        client.on('ready', () => {
-            console.log('Redis client ready');
-        });
-
-        // Create queue with the Redis client
-        webhookQueue = new Queue('webhook-processing', {
-            createClient: () => client,
-            defaultJobOptions: {
-                attempts: 3,
-                backoff: {
-                    type: 'exponential',
-                    delay: 1000
-                },
-                removeOnComplete: true,
-                removeOnFail: false
-            }
-        });
-
-        webhookQueue.on('error', error => {
-            console.error('Queue error:', error);
-        });
-
-        webhookQueue.on('failed', (job, error) => {
-            console.error('Job failed:', {
-                jobId: job.id,
-                data: job.data,
-                error: error.message
-            });
-        });
-
-        webhookQueue.on('completed', job => {
-            console.log('Job completed:', {
-                jobId: job.id,
-                data: job.data
-            });
-        });
-
-        console.log('Redis queue initialized successfully');
-        return true;
-    } catch (error) {
-        console.error('Failed to initialize Redis queue:', error);
-        return false;
-    }
-};
-
+const redis = require('redis');
 
 class WebhookController {
     constructor() {
         this.processedEvents = new Set();
+        this.initializeQueue();
+    }
+
+    async initializeQueue() {
+        try {
+            // Create Redis client with proper TLS configuration
+            this.redisClient = redis.createClient({
+                url: process.env.REDIS_URL,
+                socket: {
+                    tls: true,
+                    rejectUnauthorized: false
+                }
+            });
+
+            // Redis event handlers
+            this.redisClient.on('connect', () => {
+                console.log('Redis client connected');
+            });
+
+            this.redisClient.on('error', (err) => {
+                console.error('Redis client error:', err);
+            });
+
+            // Connect to Redis
+            await this.redisClient.connect();
+
+            // Initialize Bull queue
+            this.videoQueue = new Queue('video-generation', {
+                createClient: () => this.redisClient,
+                defaultJobOptions: {
+                    attempts: 3,
+                    backoff: {
+                        type: 'exponential',
+                        delay: 5000
+                    },
+                    removeOnComplete: true,
+                    timeout: 45 * 60 * 1000 // 45 minutes
+                }
+            });
+
+            // Queue event handlers
+            this.videoQueue.on('error', error => {
+                console.error('Queue error:', error);
+            });
+
+            this.videoQueue.on('failed', (job, error) => {
+                console.error('Job failed:', {
+                    jobId: job.id,
+                    data: job.data,
+                    error: error.message
+                });
+            });
+
+            this.videoQueue.on('completed', job => {
+                console.log('Job completed:', {
+                    jobId: job.id,
+                    data: job.data
+                });
+            });
+
+            // Set up job processor
+            this.videoQueue.process(async (job) => {
+                return this.processVideoGeneration(job);
+            });
+
+            console.log('Video queue initialized successfully');
+        } catch (error) {
+            console.error('Failed to initialize queue:', error);
+        }
+    }
+
+    async processVideoGeneration(job) {
+        const { orderId } = job.data;
+        let browser = null;
+
+        try {
+            const { data: order, error } = await supabase
+                .from('orders_2025cool')
+                .select('*')
+                .eq('daimo_id', orderId)
+                .single();
+
+            if (error) throw new Error(`Failed to fetch order: ${error.message}`);
+
+            const { browser: newBrowser, page } = await videoController.initializeBrowser();
+            browser = newBrowser;
+
+            const result = await videoController.generateVideo(page, {
+                prompt: order.prompt,
+                resolution: order.resolution,
+                duration: order.duration,
+                aspectRatio: order.aspect_ratio
+            });
+
+            await supabase
+                .from('orders_2025cool')
+                .update({
+                    status: 'completed',
+                    video_url: result.videoUrl,
+                    completed_at: new Date().toISOString()
+                })
+                .eq('daimo_id', orderId);
+
+            return { success: true, videoUrl: result.videoUrl };
+
+        } catch (error) {
+            console.error(`Video generation failed for order ${orderId}:`, error);
+            
+            await supabase
+                .from('orders_2025cool')
+                .update({
+                    status: 'failed',
+                    error: error.message,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('daimo_id', orderId);
+
+            throw error;
+        } finally {
+            if (browser) {
+                await browser.close();
+            }
+        }
     }
 
     async handleWebhook(req, res) {
@@ -133,26 +143,21 @@ class WebhookController {
         const idempotencyKey = req.headers['idempotency-key'];
 
         try {
-            // Verify webhook token
             if (!this.verifyToken(authHeader)) {
                 console.error('Invalid webhook token');
                 return res.status(401).json({ error: 'Unauthorized' });
             }
 
-            // Check idempotency
             if (await this.isEventProcessed(idempotencyKey)) {
                 console.log('Duplicate event, skipping:', idempotencyKey);
                 return res.status(200).json({ status: 'already_processed' });
             }
 
-            // Always process synchronously for reliability
             await this.processWebhookEvent(req.body, idempotencyKey);
-            
             res.status(200).json({ received: true });
 
         } catch (error) {
             console.error('Webhook handling error:', error);
-            // Still return 200 to prevent retries
             res.status(200).json({ 
                 received: true,
                 warning: 'Processed with errors'
@@ -161,19 +166,15 @@ class WebhookController {
     }
 
     verifyToken(authHeader) {
-        console.log('authorization', authHeader)
+        console.log('authorization', authHeader);
         if (!authHeader || !authHeader.startsWith('Basic ')) {
             return false;
         }
 
         const token = authHeader.split(' ')[1];
-
-        console.log('verification passed', token === process.env.DAIMO_WEBHOOK_SECRET)
-
+        console.log('verification passed', token === process.env.DAIMO_WEBHOOK_SECRET);
         return token === process.env.DAIMO_WEBHOOK_SECRET;
-    }   
-
-    
+    }
 
     async isEventProcessed(idempotencyKey) {
         const { data } = await supabase
@@ -186,17 +187,12 @@ class WebhookController {
     }
 
     async processWebhookEvent(event, idempotencyKey) {
-        console.log('Processing webhook event:', {
-            event,
-            idempotencyKey
-        });
+        console.log('Processing webhook event:', { event, idempotencyKey });
     
         try {
             const { type, paymentId, chainId, txHash } = event;
     
-            // First, record the webhook to prevent duplicates
-            console.log('Recording processed webhook');
-            const { error: insertError } = await supabase
+            await supabase
                 .from('processed_webhooks')
                 .insert([{
                     idempotency_key: idempotencyKey,
@@ -204,30 +200,16 @@ class WebhookController {
                     payment_id: paymentId
                 }]);
     
-            if (insertError) {
-                console.error('Error recording processed webhook:', insertError);
-                throw insertError;
-            }
-    
-            // Check current order status before processing
-            const { data: currentOrder, error: fetchError } = await supabase
+            const { data: currentOrder } = await supabase
                 .from('orders_2025cool')
                 .select('payment_status')
                 .eq('daimo_id', paymentId)
                 .single();
     
-            if (fetchError) {
-                console.error('Error fetching current order status:', fetchError);
-                throw fetchError;
-            }
-    
-            // Then process the event based on current status
             switch (type) {
                 case 'payment_started': {
-                    console.log('Processing payment_started event');
-                    // Only update if not already completed
-                    if (currentOrder.payment_status !== 'payment_completed') {
-                        const { error } = await supabase
+                    if (currentOrder?.payment_status !== 'payment_completed') {
+                        await supabase
                             .from('orders_2025cool')
                             .update({
                                 payment_status: 'payment_started',
@@ -236,41 +218,32 @@ class WebhookController {
                                 updated_at: new Date().toISOString()
                             })
                             .eq('daimo_id', paymentId);
-    
-                        if (error) throw error;
-                    } else {
-                        console.log('Skipping payment_started update as order is already completed');
                     }
                     break;
                 }
 
-               case 'payment_completed': {
-    console.log('Processing payment_completed event');
-    const { data: order, error } = await supabase
-        .from('orders_2025cool')
-        .update({
-            payment_status: 'payment_completed',
-            payment_completed_chain_id: chainId,
-            payment_completed_tx_hash: txHash,
-            updated_at: new Date().toISOString()
-        })
-        .eq('daimo_id', paymentId)
-        .select()
-        .single();
-
-    if (error) throw error;
-
-    if (order) {
-        console.log('Adding video generation job to queue:', order.daimo_id);
-        await videoQueue.addJob(order.daimo_id);
-    }
-    break;
-}
+                case 'payment_completed': {
+                    const { data: order } = await supabase
+                        .from('orders_2025cool')
+                        .update({
+                            payment_status: 'payment_completed',
+                            payment_completed_chain_id: chainId,
+                            payment_completed_tx_hash: txHash,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('daimo_id', paymentId)
+                        .select()
+                        .single();
+                
+                    if (order) {
+                        console.log('Adding video generation job to queue:', order.daimo_id);
+                        await this.videoQueue.add({ orderId: order.daimo_id });
+                    }
+                    break;
+                }
     
                 case 'payment_bounced': {
-                    console.log('Processing payment_bounced event');
-                    // Always update bounced status as it's a terminal state
-                    const { error } = await supabase
+                    await supabase
                         .from('orders_2025cool')
                         .update({
                             payment_status: 'payment_bounced',
@@ -279,8 +252,6 @@ class WebhookController {
                             updated_at: new Date().toISOString()
                         })
                         .eq('daimo_id', paymentId);
-    
-                    if (error) throw error;
                     break;
                 }
             }
@@ -292,9 +263,25 @@ class WebhookController {
             throw error;
         }
     }
+
+    async cleanup() {
+        try {
+            await this.redisClient.quit();
+            await this.videoQueue.close();
+        } catch (error) {
+            console.error('Error during cleanup:', error);
+        }
+    }
 }
 
-// Initialize queue (but don't depend on it)
-initializeQueue();
+// Create instance
+const webhookController = new WebhookController();
 
-module.exports = new WebhookController();
+// Handle cleanup
+process.on('SIGTERM', async () => {
+    console.log('SIGTERM received. Cleaning up...');
+    await webhookController.cleanup();
+    process.exit(0);
+});
+
+module.exports = webhookController;

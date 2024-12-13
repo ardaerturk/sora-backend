@@ -20,7 +20,7 @@ const webhookLimiter = rateLimit({
 
 // Routes
 app.post('/api/generate-video', 
-    validateVideoRequest,
+    // validateVideoRequest,
     videoController.generateVideo.bind(videoController)
 );
 

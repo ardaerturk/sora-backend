@@ -781,8 +781,6 @@ async #selectOptionSafely(page, optionValue, optionType) {
                 `--user-agent=${userAgent}`,
                 '--remote-debugging-port=9222',
                 `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`,
-                '--disable-features=IsolateOrigins,site-per-process', // This is important
-                '--disable-site-isolation-trials' // This too,
             ],
             executablePath: chromePath,
             ignoreHTTPSErrors: true,

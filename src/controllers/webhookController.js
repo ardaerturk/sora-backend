@@ -5,7 +5,42 @@ const Queue = require('bull');
 // Create a queue for webhook processing
 
 
-const webhookQueue = new Queue('webhook-processing', process.env.REDIS_URL);
+let webhookQueue;
+try {
+    webhookQueue = new Queue('webhook-processing', process.env.REDIS_URL, {
+        redis: {
+            tls: {
+                rejectUnauthorized: false
+            },
+            maxRetriesPerRequest: 1,
+            enableReadyCheck: false
+        }
+    });
+
+    // Add queue event listeners
+    webhookQueue.on('error', error => {
+        console.error('Queue error:', error);
+    });
+
+    webhookQueue.on('failed', (job, error) => {
+        console.error('Job failed:', {
+            jobId: job.id,
+            data: job.data,
+            error: error.message
+        });
+    });
+
+    webhookQueue.on('completed', job => {
+        console.log('Job completed:', {
+            jobId: job.id,
+            data: job.data
+        });
+    });
+
+    console.log('Redis queue initialized successfully');
+} catch (error) {
+    console.error('Failed to initialize Redis queue:', error);
+}
 
 class WebhookController {
     constructor() {
@@ -13,45 +48,58 @@ class WebhookController {
     }
 
     async handleWebhook(req, res) {
-
         console.log('Processing webhook:', {
             method: req.method,
             path: req.path,
             headers: req.headers,
             body: req.body
         });
-
-
+    
         const authHeader = req.headers.authorization;
         const idempotencyKey = req.headers['idempotency-key'];
-
-        
-
+    
         try {
-            // Quick response as required by Daimo
-            res.status(200).json({ received: true });
-
             // Verify webhook token
             if (!this.verifyToken(authHeader)) {
                 console.error('Invalid webhook token');
-                return;
+                return res.status(401).json({ error: 'Unauthorized' });
             }
-
+    
             // Check idempotency
             if (await this.isEventProcessed(idempotencyKey)) {
                 console.log('Duplicate event, skipping:', idempotencyKey);
-                return;
+                return res.status(200).json({ status: 'already_processed' });
             }
-
-            // Add to processing queue
-            await webhookQueue.add('process-webhook', {
-                event: req.body,
-                idempotencyKey
-            });
-
+    
+            // Process the webhook
+            if (webhookQueue) {
+                console.log('Adding job to queue:', {
+                    event: req.body,
+                    idempotencyKey
+                });
+    
+                // Add to processing queue
+                const job = await webhookQueue.add('process-webhook', {
+                    event: req.body,
+                    idempotencyKey
+                });
+    
+                console.log('Job added to queue:', job.id);
+            } else {
+                console.log('Queue not available, processing synchronously');
+                // Process synchronously if queue is not available
+                await this.processWebhookEvent(req.body, idempotencyKey);
+            }
+    
+            res.status(200).json({ received: true });
+    
         } catch (error) {
             console.error('Webhook handling error:', error);
-            // Don't send error response as we've already responded
+            // Still return 200 to prevent retries
+            res.status(200).json({ 
+                received: true,
+                warning: 'Processed with errors'
+            });
         }
     }
 
@@ -81,13 +129,19 @@ class WebhookController {
     }
 
     async processWebhookEvent(event, idempotencyKey) {
+        console.log('Processing webhook event:', {
+            event,
+            idempotencyKey
+        });
+    
         try {
             const { type, paymentId, chainId, txHash } = event;
-
+    
             // Update order based on event type
             switch (type) {
                 case 'payment_started': {
-                    await supabase
+                    console.log('Processing payment_started event');
+                    const { data, error } = await supabase
                         .from('orders_2025cool')
                         .update({
                             payment_status: 'payment_started',
@@ -95,7 +149,14 @@ class WebhookController {
                             payment_tx_hash: txHash,
                             updated_at: new Date().toISOString()
                         })
-                        .eq('daimo_id', paymentId);
+                        .eq('daimo_id', paymentId)
+                        .select();
+    
+                    if (error) {
+                        console.error('Supabase update error:', error);
+                        throw error;
+                    }
+                    console.log('Payment started update successful:', data);
                     break;
                 }
 
@@ -138,20 +199,28 @@ class WebhookController {
             }
 
             // Record processed webhook
-            await supabase
-                .from('processed_webhooks')
-                .insert([{
-                    idempotency_key: idempotencyKey,
-                    event_type: type,
-                    payment_id: paymentId
-                }]);
 
-        } catch (error) {
-            console.error('Error processing webhook event:', error);
-            throw error;
-        }
-    }
+  console.log('Recording processed webhook');
+  const { error: insertError } = await supabase
+      .from('processed_webhooks')
+      .insert([{
+          idempotency_key: idempotencyKey,
+          event_type: type,
+          payment_id: paymentId
+      }]);
+
+  if (insertError) {
+      console.error('Error recording processed webhook:', insertError);
+      throw insertError;
+  }
+
+  console.log('Webhook processing completed successfully');
+
+} catch (error) {
+  console.error('Error processing webhook event:', error);
+  throw error;
 }
+
 
 // Set up webhook queue processor
 webhookQueue.process('process-webhook', async (job) => {

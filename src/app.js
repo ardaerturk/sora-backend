@@ -4,6 +4,8 @@ const rateLimit = require('express-rate-limit');
 const cors = require('cors');
 const helmet = require('helmet');
 const webhookController = require('./controllers/webhookController');
+const videoController = require('./controllers/videoController');
+// const validateVideoRequest = require('./middlewares/validateVideoRequest');
 
 const app = express();
 

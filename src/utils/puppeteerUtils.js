@@ -630,7 +630,9 @@ async #selectOptionSafely(page, optionValue, optionType) {
                 '--disable-blink-features=AutomationControlled',
                 `--user-agent=${userAgent}`,
                 '--remote-debugging-port=9222',
-                `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`
+                `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`,
+                '--disable-features=IsolateOrigins,site-per-process', // This is important
+                '--disable-site-isolation-trials' // This too,
             ],
             executablePath: chromePath,
             ignoreHTTPSErrors: true,
@@ -649,31 +651,64 @@ async #selectOptionSafely(page, optionValue, optionType) {
             password: PROXY_PASS
         });
 
-          // Verify proxy connection
-          try {
-            // Optional: Check IP through a service
-            const ipCheckResponse = await page.goto('https://api.ipify.org?format=json');
-            const ipData = await ipCheckResponse.json();
-            console.log('Current IP:', ipData.ip);
-        } catch (error) {
-            console.warn('IP check failed:', error);
-        }
+                // Set up additional headers and configurations
+                await page.setExtraHTTPHeaders({
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                    'Connection': 'keep-alive',
+                    'Cache-Control': 'max-age=0'
+                });
 
+                        // Set viewport and timeouts
+        await page.setViewport({ width: 1280, height: 720 });
+        await page.setDefaultNavigationTimeout(60000);
+        await page.setDefaultTimeout(30000);
 
-        // Set various headers and properties to avoid detection
-        await page.setExtraHTTPHeaders({
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-            'Connection': 'keep-alive',
-            'Cache-Control': 'max-age=0'
-        });
 
 
 
         await page.setViewport({ width: 1700, height: 800 });
         await page.setDefaultNavigationTimeout(60000);
         await page.setDefaultTimeout(30000);
+
+        
+
+// Verify proxy connection
+        try {
+            console.log('Verifying proxy connection...');
+            const testResponse = await page.goto('https://api.ipify.org?format=json', {
+                waitUntil: 'networkidle0',
+                timeout: 30000
+            });
+            
+            if (testResponse.ok()) {
+                const ipData = await testResponse.json();
+                console.log('Connected through IP:', ipData.ip);
+            } else {
+                console.warn('IP check failed with status:', testResponse.status());
+            }
+        } catch (error) {
+            console.warn('Proxy verification failed:', error.message);
+            // Continue anyway as the main functionality might still work
+        }
+
+
+
+        // Set up error handling
+        page.on('error', err => {
+            console.error('Page error:', err);
+        });
+
+        page.on('pageerror', err => {
+            console.error('Page error:', err);
+        });
+
+        // Handle any authentication dialogs
+        page.on('dialog', async dialog => {
+            console.log('Dialog appeared:', dialog.message());
+            await dialog.dismiss();
+        });
 
         return { browser, page };
     }
@@ -753,19 +788,19 @@ async #selectOptionSafely(page, optionValue, optionType) {
         
 
         // Handle potential blocks
-        if (initialState.hasCloudflare || initialState.hasReCaptcha || initialState.hasAccessDenied) {
-            console.log("Detected security measure, attempting bypass...");
+        // if (initialState.hasCloudflare || initialState.hasReCaptcha || initialState.hasAccessDenied) {
+        //     console.log("Detected security measure, attempting bypass...");
 
 
-              // Retry navigation with different settings
-              await page.goto('https://sora.com', {
-                waitUntil: ['networkidle0', 'domcontentloaded'],
-                timeout: 90000
-            });
+        //       // Retry navigation with different settings
+        //       await page.goto('https://sora.com', {
+        //         waitUntil: ['networkidle0', 'domcontentloaded'],
+        //         timeout: 90000
+        //     });
             
-            // Log retry state
-            await this.#logPageContent(page, 'After Retry');
-        }
+        //     // Log retry state
+        //     await this.#logPageContent(page, 'After Retry');
+        // }
         
         await this.#humanDelay();
             

@@ -5,6 +5,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const webhookController = require('./controllers/webhookController');
 const videoController = require('./controllers/videoController');
+const config = require('./config/config');
 // const validateVideoRequest = require('./middlewares/validateVideoRequest');
 
 const app = express();

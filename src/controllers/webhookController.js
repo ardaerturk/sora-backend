@@ -3,7 +3,7 @@ const videoController = require('./videoController');
 const Queue = require('bull');
 const Redis = require('ioredis');
 
-// Parse Redis URL
+// Parse Redis URL and configure SSL
 const parseRedisUrl = (url) => {
     try {
         const parsedUrl = new URL(url);
@@ -11,7 +11,15 @@ const parseRedisUrl = (url) => {
             host: parsedUrl.hostname,
             port: parsedUrl.port,
             password: parsedUrl.password,
-            tls: parsedUrl.protocol === 'rediss:' ? { rejectUnauthorized: false } : undefined
+            username: parsedUrl.username,
+            db: parsedUrl.pathname ? parsedUrl.pathname.substring(1) : 0,
+            tls: {
+                rejectUnauthorized: false,
+                requestCert: true,
+                agent: false,
+                // For Heroku Redis
+                sslProtocol: 'TLSv1_2_method'
+            }
         };
     } catch (error) {
         console.error('Failed to parse Redis URL:', error);
@@ -28,6 +36,12 @@ const initializeQueue = () => {
             throw new Error('Invalid Redis URL');
         }
 
+        console.log('Initializing Redis with config:', {
+            host: redisConfig.host,
+            port: redisConfig.port,
+            tls: !!redisConfig.tls
+        });
+
         // Create Redis client
         const client = new Redis({
             ...redisConfig,
@@ -35,19 +49,43 @@ const initializeQueue = () => {
             enableReadyCheck: false,
             retryStrategy: (times) => {
                 if (times > 3) {
+                    console.log('Max Redis retries reached');
                     return null;
                 }
-                return Math.min(times * 100, 3000);
+                const delay = Math.min(times * 100, 3000);
+                console.log(`Retrying Redis connection in ${delay}ms`);
+                return delay;
+            },
+            reconnectOnError: (err) => {
+                console.log('Redis reconnect on error:', err.message);
+                return true;
             }
+        });
+
+        client.on('connect', () => {
+            console.log('Redis client connected');
         });
 
         client.on('error', (error) => {
             console.error('Redis client error:', error);
         });
 
+        client.on('ready', () => {
+            console.log('Redis client ready');
+        });
+
         // Create queue with the Redis client
         webhookQueue = new Queue('webhook-processing', {
-            createClient: () => client
+            createClient: () => client,
+            defaultJobOptions: {
+                attempts: 3,
+                backoff: {
+                    type: 'exponential',
+                    delay: 1000
+                },
+                removeOnComplete: true,
+                removeOnFail: false
+            }
         });
 
         webhookQueue.on('error', error => {
@@ -76,6 +114,7 @@ const initializeQueue = () => {
         return false;
     }
 };
+
 
 class WebhookController {
     constructor() {

@@ -899,43 +899,52 @@ async #selectOptionSafely(page, optionValue, optionType) {
     async login(page, credentials) {
         try {
             console.log("Navigating to Sora...");
-
-
-              // Enable request interception
-        await page.setRequestInterception(true);
-        page.on('request', request => {
-            console.log('Request:', request.url());
-            request.continue();
-        });
-        page.on('response', response => {
-            console.log('Response:', response.url(), response.status());
-        });
-
-        await page.goto('https://sora.com', { 
-            waitUntil: ['networkidle0', 'domcontentloaded', 'load'],
-            timeout: 60000
-        });
-
-        // EXTENSTIVE LOGS //
-        // const initialState = await this.#logPageContent(page, 'Initial Load');
-
-        // if (!initialState.hasButtons) {
-        //     console.log("No buttons found, waiting for dynamic content...");
-        //     await page.waitForFunction(() => {
-        //         return document.querySelectorAll('button').length > 0;
-        //     }, { timeout: 30000 });
-            
-        //     // Re-analyze after waiting
-        //     await this.#logPageContent(page, 'After Dynamic Content Load');
-        // }
-
-
-        
-        
-        await this.#humanDelay();
-            
     
-        console.log("Looking for login button...");
+            // Set up request interception with proper handling
+            const requestHandled = new Set();
+            await page.setRequestInterception(true);
+            
+            page.on('request', request => {
+                const url = request.url();
+                if (requestHandled.has(url)) {
+                    // Skip if already handled
+                    return;
+                }
+                requestHandled.add(url);
+    
+                console.log('Request:', url);
+                try {
+                    request.continue();
+                } catch (error) {
+                    console.warn('Request continue failed:', error.message);
+                }
+            });
+    
+            page.on('response', response => {
+                console.log('Response:', response.url(), response.status());
+            });
+    
+            // Clear request handlers on navigation
+            page.on('framenavigated', () => {
+                requestHandled.clear();
+            });
+    
+            // Navigate with proper error handling
+            try {
+                await page.goto('https://sora.com', { 
+                    waitUntil: ['networkidle0', 'domcontentloaded', 'load'],
+                    timeout: 60000
+                });
+            } catch (error) {
+                console.error('Navigation failed:', error);
+                // Disable request interception if navigation fails
+                await page.setRequestInterception(false);
+                throw error;
+            }
+    
+            await this.#humanDelay();
+            
+            console.log("Looking for login button...");
         
         // Log DOM structure around where login button should be
         const buttonDebug = await page.evaluate(() => {
@@ -993,8 +1002,22 @@ async #selectOptionSafely(page, optionValue, optionType) {
  
             
         } catch (error) {
+            // Ensure request interception is disabled on error
+            try {
+                await page.setRequestInterception(false);
+            } catch (e) {
+                console.warn('Failed to disable request interception:', e);
+            }
+            
             console.error("Login failed:", error);
             throw error;
+        } finally {
+            // Clean up
+            try {
+                await page.setRequestInterception(false);
+            } catch (e) {
+                console.warn('Failed to disable request interception in cleanup:', e);
+            }
         }
     }
 

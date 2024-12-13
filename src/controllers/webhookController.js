@@ -13,8 +13,19 @@ class WebhookController {
     }
 
     async handleWebhook(req, res) {
+
+        console.log('Processing webhook:', {
+            method: req.method,
+            path: req.path,
+            headers: req.headers,
+            body: req.body
+        });
+
+        
         const authHeader = req.headers.authorization;
         const idempotencyKey = req.headers['Idempotency-Key'];
+
+        
 
         try {
             // Quick response as required by Daimo

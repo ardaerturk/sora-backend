@@ -575,6 +575,19 @@ async #selectOptionSafely(page, optionValue, optionType) {
         // Random user agent
         const userAgent = this.#userAgents[Math.floor(Math.random() * this.#userAgents.length)];
 
+
+
+        // const PROXY_SERVER = process.env.PROXY_SERVER; // e.g., '11.22.33.44'
+        // const PROXY_PORT = process.env.PROXY_PORT;     // e.g., '8080'
+        // const PROXY_USER = process.env.PROXY_USERNAME;
+        // const PROXY_PASS = process.env.PROXY_PASSWORD;
+
+
+        const PROXY_SERVER = '180.178.151.1' // e.g., '11.22.33.44'
+        const PROXY_PORT = '50100';     // e.g., '8080'
+        const PROXY_USER = 'gen24560jNAh'
+        const PROXY_PASS = 'vBSmMBABjC'
+
         // const browser = await puppeteer.launch({
         //     headless: false,
         //     defaultViewport: { width: 1700, height: 800 },
@@ -583,21 +596,14 @@ async #selectOptionSafely(page, optionValue, optionType) {
         //         '--no-sandbox',
         //         '--disable-setuid-sandbox',
         //         '--disable-blink-features=AutomationControlled', // Prevents detection
-        //         `--user-agent=${userAgent}`
+        //         `--user-agent=${userAgent}`,
+        //                         `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`
         //     ],
         //     ignoreDefaultArgs: ['--enable-automation'],
         // });
 
-        // const PROXY_SERVER = process.env.PROXY_SERVER; // e.g., '11.22.33.44'
-        // const PROXY_PORT = process.env.PROXY_PORT;     // e.g., '8080'
-        // const PROXY_USER = process.env.PROXY_USERNAME;
-        // const PROXY_PASS = process.env.PROXY_PASSWORD;
 
 
-        const PROXY_SERVER = '166.1.10.167' // e.g., '11.22.33.44'
-        const PROXY_PORT = '59100';     // e.g., '8080'
-        const PROXY_USER = 'gen2456'
-        const PROXY_PASS = 'gHmyybc9BI'
 
         const browser = await puppeteer.launch({
             headless: 'true',
@@ -624,7 +630,6 @@ async #selectOptionSafely(page, optionValue, optionType) {
                 '--disable-blink-features=AutomationControlled',
                 `--user-agent=${userAgent}`,
                 '--remote-debugging-port=9222',
-                // Proxy configuration
                 `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`
             ],
             executablePath: chromePath,
@@ -779,22 +784,8 @@ async #selectOptionSafely(page, optionValue, optionType) {
             console.log("Detected security measure, attempting bypass...");
 
 
-              // Add additional headers
-              await page.setExtraHTTPHeaders({
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-                'Connection': 'keep-alive',
-                'Cache-Control': 'max-age=0',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-User': '?1',
-                'Sec-Fetch-Dest': 'document'
-            });
-
               // Retry navigation with different settings
-              await page.goto('https://sora.com', {
+              await page.goto('https://sora.com/library', {
                 waitUntil: ['networkidle0', 'domcontentloaded'],
                 timeout: 90000
             });

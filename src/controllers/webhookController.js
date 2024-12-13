@@ -199,7 +199,7 @@ class WebhookController {
             }
 
             // Record processed webhook
-
+  // Record processed webhook
   console.log('Recording processed webhook');
   const { error: insertError } = await supabase
       .from('processed_webhooks')
@@ -220,7 +220,8 @@ class WebhookController {
   console.error('Error processing webhook event:', error);
   throw error;
 }
-
+}
+}
 
 // Set up webhook queue processor
 webhookQueue.process('process-webhook', async (job) => {

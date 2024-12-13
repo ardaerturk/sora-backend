@@ -7,6 +7,8 @@ const supabase = require('../config/supabase');
 class VideoQueue {
     constructor() {
         // Initialize Redis client
+
+        console.log(process.env.REDIS_URL)
         this.redisClient = redis.createClient({
             url: process.env.REDIS_URL,
             socket: {

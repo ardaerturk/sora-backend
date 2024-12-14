@@ -1,11 +1,16 @@
-/// src/services/QueueManager.js
+// src/services/QueueManager.js
 const pathResolver = require('../utils/pathResolver');
 
-// Log paths for debugging
-pathResolver.logPaths();
+let VideoProcessor;
+try {
+    const videoProcessorPath = pathResolver.resolve('services/VideoProcessor');
+    console.log('Loading VideoProcessor from:', videoProcessorPath);
+    VideoProcessor = require(videoProcessorPath);
+} catch (error) {
+    console.error('Error loading VideoProcessor:', error);
+    throw error;
+}
 
-const VideoProcessor = require(pathResolver.resolve('services/VideoProcessor'));
-const ErrorHandler = require(pathResolver.resolve('utils/ErrorHandler'));
 
 class QueueManager {
     constructor() {
@@ -13,7 +18,7 @@ class QueueManager {
         this.isProcessing = false;
         this.maxConcurrent = 1;
         this.activeJobs = new Set();
-        this.videoProcessor = VideoProcessor;  // Note: VideoProcessor is already instantiated
+        this.videoProcessor = VideoProcessor;
     }
 
     async addJob(orderId) {

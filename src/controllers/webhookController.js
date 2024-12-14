@@ -223,7 +223,8 @@ class WebhookController {
                 }
 
                 case 'payment_completed': {
-                    const { data: order } = await supabase
+                    console.log('Processing payment_completed event');
+                    const { data: order, error } = await supabase
                         .from('orders_2025cool')
                         .update({
                             payment_status: 'payment_completed',
@@ -234,10 +235,12 @@ class WebhookController {
                         .eq('daimo_id', paymentId)
                         .select()
                         .single();
-                
+            
+                    if (error) throw error;
+            
                     if (order) {
-                        console.log('Adding video generation job to queue:', order.daimo_id);
-                        await this.videoQueue.add({ orderId: order.daimo_id });
+                        console.log('Adding video generation job to queue:', order.id);
+                        await videoQueue.addJob(order.daimo_id);
                     }
                     break;
                 }

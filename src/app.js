@@ -37,12 +37,14 @@ app.listen(config.port, () => {
     console.log(`Server is running on port ${config.port}`);
 });
 
-app.get('/queue-status', async (req, res) => {
-    const counts = await videoQueue.queue.getJobCounts();
-    res.json({
-        counts,
-        timestamp: new Date().toISOString()
-    });
+app.get('/queue-status', (req, res) => {
+    const status = videoQueue.getQueueStatus();
+    res.json(status);
+});
+
+app.get('/job-status/:orderId', async (req, res) => {
+    const status = await videoQueue.getJobStatus(req.params.orderId);
+    res.json(status || { error: 'Job not found' });
 });
 
 app.get('/job-status/:orderId', async (req, res) => {

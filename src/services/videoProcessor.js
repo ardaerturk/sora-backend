@@ -1,10 +1,13 @@
-// services/VideoProcessor.js
-const BrowserManager = require('../utils/BrowserManager');
-const LoginHandler = require('../utils/LoginHandler');
-const VideoGenerator = require('../utils/VideoGenerator');
-const ErrorHandler = require('../utils/ErrorHandler');
-const supabase = require('../config/supabase');
-const emailService = require('./emailService');
+// src/services/VideoProcessor.js
+const pathResolver = require('../utils/pathResolver');
+
+const BrowserManager = require(pathResolver.resolve('utils/puppeteer/BrowserManager'));
+const LoginHandler = require(pathResolver.resolve('utils/puppeteer/LoginHandler'));
+const VideoGenerator = require(pathResolver.resolve('utils/puppeteer/VideoGenerator'));
+const ErrorHandler = require(pathResolver.resolve('utils/ErrorHandler'));
+const supabase = require(pathResolver.resolve('config/supabase'));
+const emailService = require(pathResolver.resolve('services/emailService'));
+
 
 class VideoProcessor {
     constructor() {

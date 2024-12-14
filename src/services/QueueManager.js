@@ -1,6 +1,7 @@
 // services/QueueManager.js
-const videoProcessor = require('./VideoProcessor');
-const ErrorHandler = require('../utils/ErrorHandler');
+const path = require('path');
+const VideoProcessor = require(path.join(__dirname, 'VideoProcessor'));
+const ErrorHandler = require(path.join(__dirname, '../utils/ErrorHandler'));
 
 class QueueManager {
     constructor() {

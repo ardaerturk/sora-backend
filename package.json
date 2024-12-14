@@ -6,6 +6,7 @@
     "node": "20.x"
   },
   "scripts": {
+    "prestart": "node -e \"const fs=require('fs');const path=require('path');console.log('Directory structure:',fs.readdirSync(path.join(process.cwd(),'src')).map(f=>({name:f,type:fs.statSync(path.join(process.cwd(),'src',f)).isDirectory()?'dir':'file'})));\"",
     "start": "node src/app.js",
     "worker": "node src/worker.js"
   },

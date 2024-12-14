@@ -3,14 +3,38 @@ const pathResolver = require('../utils/pathResolver');
 
 let VideoProcessor;
 try {
-    const videoProcessorPath = pathResolver.resolve('services/VideoProcessor');
-    console.log('Loading VideoProcessor from:', videoProcessorPath);
-    VideoProcessor = require(videoProcessorPath);
+    // Try multiple possible paths
+    const possiblePaths = [
+        'services/VideoProcessor',
+        'Services/VideoProcessor',
+        'services/videoProcessor',
+        'Services/videoProcessor'
+    ];
+
+    let loaded = false;
+    for (const p of possiblePaths) {
+        try {
+            const resolvedPath = pathResolver.resolve(p);
+            console.log(`Attempting to load VideoProcessor from: ${resolvedPath}`);
+            VideoProcessor = require(resolvedPath);
+            loaded = true;
+            console.log(`Successfully loaded VideoProcessor from: ${resolvedPath}`);
+            break;
+        } catch (e) {
+            console.log(`Failed to load from ${p}:`, e.message);
+        }
+    }
+
+    if (!loaded) {
+        throw new Error('Could not load VideoProcessor from any expected path');
+    }
+
 } catch (error) {
     console.error('Error loading VideoProcessor:', error);
+    console.error('Current directory:', process.cwd());
+    console.error('Directory contents:', fs.readdirSync(process.cwd()));
     throw error;
 }
-
 
 class QueueManager {
     constructor() {

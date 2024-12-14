@@ -28,71 +28,111 @@ class PathResolver {
         console.log('Path Resolution Debug:', {
             rootDir: this.rootDir,
             srcDir: this.srcDir,
+            environment: process.env.NODE_ENV,
             exists: {
                 src: fs.existsSync(this.srcDir),
-                utils: fs.existsSync(path.join(this.srcDir, 'utils')),
-                services: fs.existsSync(path.join(this.srcDir, 'services'))
+                services: fs.existsSync(path.join(this.srcDir, 'services')),
+                utils: fs.existsSync(path.join(this.srcDir, 'utils'))
             }
         });
+
+        // List contents of src directory
+        if (fs.existsSync(this.srcDir)) {
+            console.log('Contents of src directory:', this.listDirectoryContents(this.srcDir));
+        }
+    }
+
+    listDirectoryContents(dir) {
+        try {
+            const items = fs.readdirSync(dir);
+            const contents = {};
+            
+            items.forEach(item => {
+                const fullPath = path.join(dir, item);
+                if (fs.statSync(fullPath).isDirectory()) {
+                    contents[item] = this.listDirectoryContents(fullPath);
+                } else {
+                    contents[item] = 'file';
+                }
+            });
+            
+            return contents;
+        } catch (error) {
+            return `Error reading directory: ${error.message}`;
+        }
     }
 
     resolve(relativePath) {
+        console.log(`Resolving path for: ${relativePath}`);
+        
         // Remove .js extension if present
         relativePath = relativePath.replace(/\.js$/, '');
 
-        // Map the old paths to new paths
-        const pathMapping = {
-            'utils/puppeteer/BrowserManager': 'utils/BrowserManager',
-            'utils/puppeteer/LoginHandler': 'utils/LoginHandler',
-            'utils/puppeteer/VideoGenerator': 'utils/VideoGenerator',
-            'utils/puppeteer/HumanBehavior': 'utils/HumanBehavior'
-        };
+        // Handle case sensitivity for services directory
+        const servicesPath = relativePath.startsWith('services/') ? 
+            relativePath.replace('services/', 'Services/') : relativePath;
 
-        // Use mapped path if it exists
-        const mappedPath = pathMapping[relativePath] || relativePath;
-
-        // Try different possible paths
         const possiblePaths = [
-            path.join(this.srcDir, mappedPath),
-            path.join(this.rootDir, 'src', mappedPath),
-            path.join(this.rootDir, mappedPath)
+            // Try original path
+            path.join(this.srcDir, relativePath),
+            path.join(this.srcDir, `${relativePath}.js`),
+            // Try with capital S in Services
+            path.join(this.srcDir, servicesPath),
+            path.join(this.srcDir, `${servicesPath}.js`),
+            // Try lowercase
+            path.join(this.srcDir, relativePath.toLowerCase()),
+            path.join(this.srcDir, `${relativePath.toLowerCase()}.js`),
+            // Try uppercase first letter
+            path.join(this.srcDir, this.capitalizeFirstLetter(relativePath)),
+            path.join(this.srcDir, `${this.capitalizeFirstLetter(relativePath)}.js`)
         ];
 
+        console.log('Attempting paths:', possiblePaths);
+
         for (const pathToTry of possiblePaths) {
-            // Try with and without .js extension
-            if (fs.existsSync(`${pathToTry}.js`)) {
-                return `${pathToTry}.js`;
-            }
+            console.log(`Checking path: ${pathToTry}`);
             if (fs.existsSync(pathToTry)) {
+                console.log(`Found file at: ${pathToTry}`);
                 return pathToTry;
             }
         }
 
         // If not found, log detailed debug information
         console.error('Path resolution failed for:', relativePath);
-        console.error('Mapped to:', mappedPath);
-        console.error('Attempted paths:', possiblePaths);
         console.error('Current directory structure:');
         this.logDirectoryStructure(this.srcDir);
 
         throw new Error(`Could not resolve path for: ${relativePath}. Attempted: ${possiblePaths.join(', ')}`);
     }
 
+    capitalizeFirstLetter(string) {
+        const parts = string.split('/');
+        return parts.map(part => 
+            part.charAt(0).toUpperCase() + part.slice(1)
+        ).join('/');
+    }
+
     logDirectoryStructure(dir, level = 0) {
         const indent = '  '.repeat(level);
-        const items = fs.readdirSync(dir);
-        
-        items.forEach(item => {
-            const fullPath = path.join(dir, item);
-            if (fs.statSync(fullPath).isDirectory()) {
-                console.log(`${indent}📁 ${item}`);
-                if (level < 3) { // Limit recursion depth
-                    this.logDirectoryStructure(fullPath, level + 1);
+        try {
+            const items = fs.readdirSync(dir);
+            items.forEach(item => {
+                const fullPath = path.join(dir, item);
+                try {
+                    const stat = fs.statSync(fullPath);
+                    if (stat.isDirectory()) {
+                        console.log(`${indent}📁 ${item}`);
+                        this.logDirectoryStructure(fullPath, level + 1);
+                    } else {
+                        console.log(`${indent}📄 ${item} (${stat.size} bytes)`);
+                    }
+                } catch (error) {
+                    console.log(`${indent}❌ Error reading ${item}: ${error.message}`);
                 }
-            } else {
-                console.log(`${indent}📄 ${item}`);
-            }
-        });
+            });
+        } catch (error) {
+            console.log(`${indent}❌ Error reading directory ${dir}: ${error.message}`);
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 // services/QueueManager.js
-const videoProcessor = require('../services/VideoProcessor'); // Import the singleton instance
+const videoProcessor = require('./VideoProcessor.js');
 const ErrorHandler = require('../utils/ErrorHandler');
 
 class QueueManager {

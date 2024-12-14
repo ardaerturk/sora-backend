@@ -104,10 +104,10 @@ class BrowserManager {
         const PROXY_PASS = 'vBSmMBABjC'
 
 
-        // await page.authenticate({
-        //     username: PROXY_USER,
-        //     password: PROXY_PASS
-        // });
+        await page.authenticate({
+            username: PROXY_USER,
+            password: PROXY_PASS
+        });
 
         // Configure headers and viewport
         await page.setUserAgent(userAgent);

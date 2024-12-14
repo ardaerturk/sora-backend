@@ -1,24 +1,67 @@
 const { createClient } = require('redis');
-const Queue = require('bull');
+const Bull = require('bull');
 const puppeteerService = require('../utils/puppeteerUtils');
 const emailService = require('./emailService');
 const supabase = require('../config/supabase');
+const Redis = require('ioredis'); // Add this for Bull
 
 class VideoQueue {
     constructor() {
-
-        console.log('username', process.env.REDIS_USERNAME)
-        console.log('password', process.env.REDIS_PASSWORD)
-        console.log('host', process.env.REDIS_HOST)
-        console.log('port', process.env.REDIS_PORT)
-
-        // Create Redis client
-        this.redisClient = createClient({
+        // Redis configuration
+        const redisConfig = {
             username: process.env.REDIS_USERNAME || 'default',
             password: process.env.REDIS_PASSWORD,
+            host: process.env.REDIS_HOST,
+            port: parseInt(process.env.REDIS_PORT),
+            tls: {
+                rejectUnauthorized: false
+            }
+        };
+
+        // Create Redis client for general use
+        this.redisClient = createClient({
+            username: redisConfig.username,
+            password: redisConfig.password,
             socket: {
-                host: process.env.REDIS_HOST,
-                port: parseInt(process.env.REDIS_PORT)
+                host: redisConfig.host,
+                port: redisConfig.port,
+                tls: redisConfig.tls
+            }
+        });
+
+        // Create IoRedis client for Bull
+        const bullRedisClient = new Redis({
+            port: redisConfig.port,
+            host: redisConfig.host,
+            username: redisConfig.username,
+            password: redisConfig.password,
+            tls: redisConfig.tls,
+            maxRetriesPerRequest: null,
+            enableReadyCheck: false
+        });
+
+        // Initialize Bull queue with IoRedis client
+        this.queue = new Bull('video-generation', {
+            createClient: (type) => {
+                switch (type) {
+                    case 'client':
+                        return bullRedisClient;
+                    case 'subscriber':
+                        return bullRedisClient.duplicate();
+                    case 'bclient':
+                        return bullRedisClient.duplicate();
+                    default:
+                        return bullRedisClient;
+                }
+            },
+            defaultJobOptions: {
+                attempts: 3,
+                backoff: {
+                    type: 'exponential',
+                    delay: 5000
+                },
+                removeOnComplete: true,
+                timeout: 45 * 60 * 1000 // 45 minutes
             }
         });
 
@@ -33,31 +76,6 @@ class VideoQueue {
 
         this.redisClient.on('ready', () => {
             console.log('Redis Client Ready');
-        });
-
-        // Initialize Bull queue with Redis client
-        this.queue = new Queue('video-generation', {
-            createClient: (type) => {
-                switch (type) {
-                    case 'client':
-                        return this.redisClient;
-                    case 'subscriber':
-                        return this.redisClient.duplicate();
-                    case 'bclient':
-                        return this.redisClient.duplicate();
-                    default:
-                        return this.redisClient;
-                }
-            },
-            defaultJobOptions: {
-                attempts: 3,
-                backoff: {
-                    type: 'exponential',
-                    delay: 5000
-                },
-                removeOnComplete: true,
-                timeout: 45 * 60 * 1000 // 45 minutes
-            }
         });
 
         // Initialize Redis connection
@@ -275,5 +293,6 @@ process.on('SIGTERM', async () => {
     await videoQueue.cleanup();
     process.exit(0);
 });
+
 
 module.exports = videoQueue;

@@ -1,39 +1,38 @@
 // src/services/QueueManager.js
-const pathResolver = require('../utils/pathResolver');
+const path = require('path');
 const fs = require('fs');
+const pathResolver = require('../utils/pathResolver');
 
 let VideoProcessor;
 try {
-    // Try multiple possible paths
-    const possiblePaths = [
-        'services/VideoProcessor',
-        'Services/VideoProcessor',
-        'services/videoProcessor',
-        'Services/videoProcessor'
-    ];
-
-    let loaded = false;
-    for (const p of possiblePaths) {
-        try {
-            const resolvedPath = pathResolver.resolve(p);
-            console.log(`Attempting to load VideoProcessor from: ${resolvedPath}`);
-            VideoProcessor = require(resolvedPath);
-            loaded = true;
-            console.log(`Successfully loaded VideoProcessor from: ${resolvedPath}`);
-            break;
-        } catch (e) {
-            console.log(`Failed to load from ${p}:`, e.message);
-        }
+    console.log('\n=== Loading VideoProcessor ===');
+    
+    // Debug current directory structure
+    const currentDir = process.cwd();
+    console.log('Current working directory:', currentDir);
+    
+    // Check if we're in the correct directory
+    const srcServicesDir = path.join(currentDir, 'src', 'services');
+    if (fs.existsSync(srcServicesDir)) {
+        console.log('\nContents of src/services directory:');
+        fs.readdirSync(srcServicesDir).forEach(file => {
+            console.log(`- ${file}`);
+        });
+    } else {
+        console.log('src/services directory not found!');
     }
 
-    if (!loaded) {
-        throw new Error('Could not load VideoProcessor from any expected path');
-    }
+    // Try to load VideoProcessor
+    const videoProcessorPath = pathResolver.resolve('services/VideoProcessor');
+    console.log('\nAttempting to load from:', videoProcessorPath);
+    
+    VideoProcessor = require(videoProcessorPath);
+    console.log('Successfully loaded VideoProcessor');
 
 } catch (error) {
-    console.error('Error loading VideoProcessor:', error);
-    console.error('Current directory:', process.cwd());
-    console.error('Directory contents:', fs.readdirSync(process.cwd()));
+    console.error('\n=== Error Loading VideoProcessor ===');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
     throw error;
 }
 

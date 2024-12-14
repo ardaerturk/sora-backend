@@ -6,133 +6,102 @@ class PathResolver {
     constructor() {
         this.rootDir = this.findRootDir();
         this.srcDir = path.join(this.rootDir, 'src');
-        this.debugPaths();
+        this.debugFullStructure();
     }
 
-    findRootDir() {
-        if (process.env.NODE_ENV === 'production') {
-            return '/app';
-        }
-        
-        let currentDir = __dirname;
-        while (currentDir !== '/') {
-            if (fs.existsSync(path.join(currentDir, 'package.json'))) {
-                return currentDir;
-            }
-            currentDir = path.dirname(currentDir);
-        }
-        return process.cwd();
-    }
+    debugFullStructure() {
+        console.log('\n=== Full Directory Structure ===');
+        console.log('Root Directory:', this.rootDir);
+        console.log('Src Directory:', this.srcDir);
 
-    debugPaths() {
-        console.log('Path Resolution Debug:', {
-            rootDir: this.rootDir,
-            srcDir: this.srcDir,
-            environment: process.env.NODE_ENV,
-            exists: {
-                src: fs.existsSync(this.srcDir),
-                services: fs.existsSync(path.join(this.srcDir, 'services')),
-                utils: fs.existsSync(path.join(this.srcDir, 'utils'))
-            }
-        });
-
-        // List contents of src directory
         if (fs.existsSync(this.srcDir)) {
-            console.log('Contents of src directory:', this.listDirectoryContents(this.srcDir));
+            console.log('\nContents of src directory:');
+            this.printDirectoryStructure(this.srcDir);
+        } else {
+            console.log('src directory does not exist!');
         }
     }
 
-    listDirectoryContents(dir) {
+    printDirectoryStructure(dirPath, indent = '') {
         try {
-            const items = fs.readdirSync(dir);
-            const contents = {};
-            
+            const items = fs.readdirSync(dirPath);
             items.forEach(item => {
-                const fullPath = path.join(dir, item);
-                if (fs.statSync(fullPath).isDirectory()) {
-                    contents[item] = this.listDirectoryContents(fullPath);
+                const fullPath = path.join(dirPath, item);
+                const stats = fs.statSync(fullPath);
+                if (stats.isDirectory()) {
+                    console.log(`${indent}📁 ${item}/`);
+                    this.printDirectoryStructure(fullPath, indent + '  ');
                 } else {
-                    contents[item] = 'file';
+                    console.log(`${indent}📄 ${item} (${stats.size} bytes)`);
                 }
             });
-            
-            return contents;
         } catch (error) {
-            return `Error reading directory: ${error.message}`;
+            console.error(`Error reading directory ${dirPath}:`, error);
         }
     }
 
     resolve(relativePath) {
-        console.log(`Resolving path for: ${relativePath}`);
+        console.log(`\nResolving path for: ${relativePath}`);
         
-        // Remove .js extension if present
-        relativePath = relativePath.replace(/\.js$/, '');
+        // First, let's see what we have in the services directory
+        const servicesDir = path.join(this.srcDir, 'services');
+        if (fs.existsSync(servicesDir)) {
+            console.log('\nContents of services directory:');
+            fs.readdirSync(servicesDir).forEach(file => {
+                console.log(`- ${file}`);
+            });
+        }
 
-        // Handle case sensitivity for services directory
-        const servicesPath = relativePath.startsWith('services/') ? 
-            relativePath.replace('services/', 'Services/') : relativePath;
+        // Try all possible case combinations
+        const variations = this.getPathVariations(relativePath);
+        console.log('\nTrying path variations:', variations);
 
-        const possiblePaths = [
-            // Try original path
-            path.join(this.srcDir, relativePath),
-            path.join(this.srcDir, `${relativePath}.js`),
-            // Try with capital S in Services
-            path.join(this.srcDir, servicesPath),
-            path.join(this.srcDir, `${servicesPath}.js`),
-            // Try lowercase
-            path.join(this.srcDir, relativePath.toLowerCase()),
-            path.join(this.srcDir, `${relativePath.toLowerCase()}.js`),
-            // Try uppercase first letter
-            path.join(this.srcDir, this.capitalizeFirstLetter(relativePath)),
-            path.join(this.srcDir, `${this.capitalizeFirstLetter(relativePath)}.js`)
-        ];
-
-        console.log('Attempting paths:', possiblePaths);
-
-        for (const pathToTry of possiblePaths) {
-            console.log(`Checking path: ${pathToTry}`);
-            if (fs.existsSync(pathToTry)) {
-                console.log(`Found file at: ${pathToTry}`);
-                return pathToTry;
+        for (const variant of variations) {
+            const fullPath = path.join(this.srcDir, variant);
+            const withJs = `${fullPath}.js`;
+            
+            console.log(`Checking: ${fullPath}`);
+            console.log(`Checking with .js: ${withJs}`);
+            
+            if (fs.existsSync(fullPath)) {
+                console.log(`Found: ${fullPath}`);
+                return fullPath;
+            }
+            if (fs.existsSync(withJs)) {
+                console.log(`Found: ${withJs}`);
+                return withJs;
             }
         }
 
-        // If not found, log detailed debug information
-        console.error('Path resolution failed for:', relativePath);
-        console.error('Current directory structure:');
-        this.logDirectoryStructure(this.srcDir);
-
-        throw new Error(`Could not resolve path for: ${relativePath}. Attempted: ${possiblePaths.join(', ')}`);
+        throw new Error(`Could not resolve path for: ${relativePath}\nTried variations: ${variations.join(', ')}`);
     }
 
-    capitalizeFirstLetter(string) {
-        const parts = string.split('/');
-        return parts.map(part => 
-            part.charAt(0).toUpperCase() + part.slice(1)
-        ).join('/');
-    }
+    getPathVariations(relativePath) {
+        const parts = relativePath.split('/');
+        const lastPart = parts[parts.length - 1];
+        const directory = parts.slice(0, -1).join('/');
 
-    logDirectoryStructure(dir, level = 0) {
-        const indent = '  '.repeat(level);
-        try {
-            const items = fs.readdirSync(dir);
-            items.forEach(item => {
-                const fullPath = path.join(dir, item);
-                try {
-                    const stat = fs.statSync(fullPath);
-                    if (stat.isDirectory()) {
-                        console.log(`${indent}📁 ${item}`);
-                        this.logDirectoryStructure(fullPath, level + 1);
-                    } else {
-                        console.log(`${indent}📄 ${item} (${stat.size} bytes)`);
-                    }
-                } catch (error) {
-                    console.log(`${indent}❌ Error reading ${item}: ${error.message}`);
-                }
-            });
-        } catch (error) {
-            console.log(`${indent}❌ Error reading directory ${dir}: ${error.message}`);
-        }
+        const variations = [
+            // Original
+            relativePath,
+            // All lowercase
+            relativePath.toLowerCase(),
+            // First letter uppercase
+            directory + '/' + lastPart.charAt(0).toUpperCase() + lastPart.slice(1),
+            // All uppercase first letters
+            parts.map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('/'),
+            // Try services with capital S
+            relativePath.replace('services/', 'Services/'),
+            // Try with different case combinations
+            `services/${lastPart}`,
+            `Services/${lastPart}`,
+            `services/${lastPart.toLowerCase()}`,
+            `Services/${lastPart.toLowerCase()}`,
+            `services/${lastPart.charAt(0).toUpperCase() + lastPart.slice(1)}`,
+            `Services/${lastPart.charAt(0).toUpperCase() + lastPart.slice(1)}`
+        ];
+
+        return [...new Set(variations)]; // Remove duplicates
     }
 }
 

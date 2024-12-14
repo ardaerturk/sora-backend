@@ -1,5 +1,6 @@
 // src/services/QueueManager.js
 const pathResolver = require('../utils/pathResolver');
+const fs = require('fs');
 
 let VideoProcessor;
 try {

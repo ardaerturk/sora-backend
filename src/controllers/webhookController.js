@@ -1,134 +1,9 @@
 const supabase = require('../config/supabase');
-const videoController = require('./videoController');
-const Queue = require('bull');
-const redis = require('redis');
+const videoQueue = require('../services/videoQueue');
 
 class WebhookController {
     constructor() {
         this.processedEvents = new Set();
-        this.initializeQueue();
-    }
-
-    async initializeQueue() {
-        try {
-            // Create Redis client with proper TLS configuration
-            this.redisClient = redis.createClient({
-                url: process.env.REDIS_URL,
-                socket: {
-                    tls: true,
-                    rejectUnauthorized: false
-                }
-            });
-
-            // Redis event handlers
-            this.redisClient.on('connect', () => {
-                console.log('Redis client connected');
-            });
-
-            this.redisClient.on('error', (err) => {
-                console.error('Redis client error:', err);
-            });
-
-            // Connect to Redis
-            await this.redisClient.connect();
-
-            // Initialize Bull queue
-            this.videoQueue = new Queue('video-generation', {
-                createClient: () => this.redisClient,
-                defaultJobOptions: {
-                    attempts: 3,
-                    backoff: {
-                        type: 'exponential',
-                        delay: 5000
-                    },
-                    removeOnComplete: true,
-                    timeout: 45 * 60 * 1000 // 45 minutes
-                }
-            });
-
-            // Queue event handlers
-            this.videoQueue.on('error', error => {
-                console.error('Queue error:', error);
-            });
-
-            this.videoQueue.on('failed', (job, error) => {
-                console.error('Job failed:', {
-                    jobId: job.id,
-                    data: job.data,
-                    error: error.message
-                });
-            });
-
-            this.videoQueue.on('completed', job => {
-                console.log('Job completed:', {
-                    jobId: job.id,
-                    data: job.data
-                });
-            });
-
-            // Set up job processor
-            this.videoQueue.process(async (job) => {
-                return this.processVideoGeneration(job);
-            });
-
-            console.log('Video queue initialized successfully');
-        } catch (error) {
-            console.error('Failed to initialize queue:', error);
-        }
-    }
-
-    async processVideoGeneration(job) {
-        const { orderId } = job.data;
-        let browser = null;
-
-        try {
-            const { data: order, error } = await supabase
-                .from('orders_2025cool')
-                .select('*')
-                .eq('daimo_id', orderId)
-                .single();
-
-            if (error) throw new Error(`Failed to fetch order: ${error.message}`);
-
-            const { browser: newBrowser, page } = await videoController.initializeBrowser();
-            browser = newBrowser;
-
-            const result = await videoController.generateVideo(page, {
-                prompt: order.prompt,
-                resolution: order.resolution,
-                duration: order.duration,
-                aspectRatio: order.aspect_ratio
-            });
-
-            await supabase
-                .from('orders_2025cool')
-                .update({
-                    status: 'completed',
-                    video_url: result.videoUrl,
-                    completed_at: new Date().toISOString()
-                })
-                .eq('daimo_id', orderId);
-
-            return { success: true, videoUrl: result.videoUrl };
-
-        } catch (error) {
-            console.error(`Video generation failed for order ${orderId}:`, error);
-            
-            await supabase
-                .from('orders_2025cool')
-                .update({
-                    status: 'failed',
-                    error: error.message,
-                    updated_at: new Date().toISOString()
-                })
-                .eq('daimo_id', orderId);
-
-            throw error;
-        } finally {
-            if (browser) {
-                await browser.close();
-            }
-        }
     }
 
     async handleWebhook(req, res) {
@@ -143,73 +18,101 @@ class WebhookController {
         const idempotencyKey = req.headers['idempotency-key'];
 
         try {
+            // Quick response as required by Daimo
+            res.status(200).json({ received: true });
+
+            // Verify webhook token
             if (!this.verifyToken(authHeader)) {
                 console.error('Invalid webhook token');
-                return res.status(401).json({ error: 'Unauthorized' });
+                return;
             }
 
+            // Check idempotency
             if (await this.isEventProcessed(idempotencyKey)) {
                 console.log('Duplicate event, skipping:', idempotencyKey);
-                return res.status(200).json({ status: 'already_processed' });
+                return;
             }
 
+            // Process the webhook
             await this.processWebhookEvent(req.body, idempotencyKey);
-            res.status(200).json({ received: true });
 
         } catch (error) {
             console.error('Webhook handling error:', error);
-            res.status(200).json({ 
-                received: true,
-                warning: 'Processed with errors'
-            });
+            // Don't send error response as we've already responded
         }
     }
 
     verifyToken(authHeader) {
-        console.log('authorization', authHeader);
+        console.log('Authorization header:', authHeader);
         if (!authHeader || !authHeader.startsWith('Basic ')) {
             return false;
         }
 
         const token = authHeader.split(' ')[1];
-        console.log('verification passed', token === process.env.DAIMO_WEBHOOK_SECRET);
-        return token === process.env.DAIMO_WEBHOOK_SECRET;
+        const isValid = token === process.env.DAIMO_WEBHOOK_SECRET;
+        console.log('Token verification:', isValid ? 'passed' : 'failed');
+        return isValid;
     }
 
     async isEventProcessed(idempotencyKey) {
-        const { data } = await supabase
-            .from('processed_webhooks')
-            .select('payment_id')
-            .eq('idempotency_key', idempotencyKey)
-            .single();
+        try {
+            const { data } = await supabase
+                .from('processed_webhooks')
+                .select('id')
+                .eq('idempotency_key', idempotencyKey)
+                .single();
 
-        return !!data;
+            return !!data;
+        } catch (error) {
+            console.error('Error checking processed webhook:', error);
+            return false;
+        }
     }
 
     async processWebhookEvent(event, idempotencyKey) {
-        console.log('Processing webhook event:', { event, idempotencyKey });
-    
+        console.log('Processing webhook event:', {
+            event,
+            idempotencyKey
+        });
+
         try {
             const { type, paymentId, chainId, txHash } = event;
-    
-            await supabase
+
+            // First, record the webhook to prevent duplicates
+            console.log('Recording processed webhook');
+            const { error: insertError } = await supabase
                 .from('processed_webhooks')
                 .insert([{
                     idempotency_key: idempotencyKey,
                     event_type: type,
-                    payment_id: paymentId
+                    payment_id: paymentId,
+                    created_at: new Date().toISOString()
                 }]);
-    
-            const { data: currentOrder } = await supabase
+
+            if (insertError) {
+                console.error('Error recording processed webhook:', insertError);
+                throw insertError;
+            }
+
+            // Check current order status
+            const { data: currentOrder, error: fetchError } = await supabase
                 .from('orders_2025cool')
-                .select('payment_status')
+                .select('payment_status, status')
                 .eq('daimo_id', paymentId)
                 .single();
-    
+
+            if (fetchError) {
+                console.error('Error fetching current order status:', fetchError);
+                throw fetchError;
+            }
+
+            // Process based on event type
             switch (type) {
                 case 'payment_started': {
-                    if (currentOrder?.payment_status !== 'payment_completed') {
-                        await supabase
+                    console.log('Processing payment_started event');
+                    // Only update if not already completed
+                    if (currentOrder.payment_status !== 'payment_completed') {
+                        const { error } = await supabase
                             .from('orders_2025cool')
                             .update({
                                 payment_status: 'payment_started',
@@ -218,6 +121,13 @@ class WebhookController {
                                 updated_at: new Date().toISOString()
                             })
                             .eq('daimo_id', paymentId);
+
+                        if (error) {
+                            console.error('Error updating payment_started status:', error);
+                            throw error;
+                        }
+                    } else {
+                        console.log('Skipping payment_started update as order is already completed');
                     }
                     break;
                 }
@@ -230,61 +140,90 @@ class WebhookController {
                             payment_status: 'payment_completed',
                             payment_completed_chain_id: chainId,
                             payment_completed_tx_hash: txHash,
+                            status: 'pending_generation',
                             updated_at: new Date().toISOString()
                         })
                         .eq('daimo_id', paymentId)
                         .select()
                         .single();
-            
-                    if (error) throw error;
-            
+
+                    if (error) {
+                        console.error('Error updating payment_completed status:', error);
+                        throw error;
+                    }
+
                     if (order) {
-                        console.log('Adding video generation job to queue:', order.id);
+                        console.log('Adding to video generation queue:', order.daimo_id);
                         await videoQueue.addJob(order.daimo_id);
                     }
                     break;
                 }
-    
+
                 case 'payment_bounced': {
-                    await supabase
+                    console.log('Processing payment_bounced event');
+                    const { error } = await supabase
                         .from('orders_2025cool')
                         .update({
                             payment_status: 'payment_bounced',
+                            status: 'failed',
                             error_chain_id: chainId,
                             error_tx_hash: txHash,
+                            error: 'Payment bounced',
                             updated_at: new Date().toISOString()
                         })
                         .eq('daimo_id', paymentId);
+
+                    if (error) {
+                        console.error('Error updating payment_bounced status:', error);
+                        throw error;
+                    }
                     break;
                 }
+
+                default: {
+                    console.warn('Unknown event type:', type);
+                }
             }
-    
+
             console.log('Webhook processing completed successfully');
-    
+
         } catch (error) {
             console.error('Error processing webhook event:', error);
+            
+            // Try to update order status on error
+            try {
+                await supabase
+                    .from('orders_2025cool')
+                    .update({
+                        status: 'failed',
+                        error: error.message,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('daimo_id', event.paymentId);
+            } catch (updateError) {
+                console.error('Error updating order status after failure:', updateError);
+            }
+
             throw error;
         }
     }
 
-    async cleanup() {
+    // Helper method to get webhook status
+    async getWebhookStatus(idempotencyKey) {
         try {
-            await this.redisClient.quit();
-            await this.videoQueue.close();
+            const { data, error } = await supabase
+                .from('processed_webhooks')
+                .select('*')
+                .eq('idempotency_key', idempotencyKey)
+                .single();
+
+            if (error) throw error;
+            return data;
         } catch (error) {
-            console.error('Error during cleanup:', error);
+            console.error('Error getting webhook status:', error);
+            return null;
         }
     }
 }
 
-// Create instance
-const webhookController = new WebhookController();
-
-// Handle cleanup
-process.on('SIGTERM', async () => {
-    console.log('SIGTERM received. Cleaning up...');
-    await webhookController.cleanup();
-    process.exit(0);
-});
-
-module.exports = webhookController;
+module.exports = new WebhookController();

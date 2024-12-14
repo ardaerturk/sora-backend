@@ -7,7 +7,33 @@ class PuppeteerService {
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
     ];
-
+    async #cleanupResources(page) {
+        try {
+            // Clear memory
+            await page.evaluate(() => {
+                window.gc && window.gc();
+                const observer = new PerformanceObserver((list) => {
+                    list.getEntries().forEach((entry) => {
+                        performance.clearResourceTimings();
+                    });
+                });
+                observer.observe({ entryTypes: ['resource'] });
+            });
+    
+            // Remove listeners
+            await page.removeAllListeners();
+            
+            // Clear cache and cookies
+            const client = await page.target().createCDPSession();
+            await client.send('Network.clearBrowserCache');
+            await client.send('Network.clearBrowserCookies');
+            
+            // Close CDP session
+            await client.detach();
+        } catch (error) {
+            console.warn('Cleanup error:', error);
+        }
+    }
 
     async #checkIfLoggedIn(page) {
         try {
@@ -26,22 +52,33 @@ class PuppeteerService {
         }
     }
 
-    async #retryOperation(operation, maxAttempts = 3, delayMs = 5000) {
+    async #retryOperation(operation, options = {}) {
+        const {
+            maxAttempts = 3,
+            initialDelay = 1000,
+            maxDelay = 10000,
+            factor = 2,
+            description = 'operation'
+        } = options;
+    
+        let lastError;
+        let delay = initialDelay;
+    
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                console.log(`Attempt ${attempt} of ${maxAttempts}`);
                 return await operation();
             } catch (error) {
-                console.error(`Attempt ${attempt} failed:`, error);
-                
-                if (attempt === maxAttempts) {
-                    throw new Error(`All ${maxAttempts} attempts failed: ${error.message}`);
-                }
-                
-                console.log(`Waiting ${delayMs/1000} seconds before next attempt...`);
-                await this.#humanDelay(delayMs, delayMs + 1000);
+                lastError = error;
+                console.error(`${description} failed (attempt ${attempt}/${maxAttempts}):`, error);
+    
+                if (attempt === maxAttempts) break;
+    
+                delay = Math.min(delay * factor, maxDelay);
+                await this.#humanDelay(delay, delay + 1000);
             }
         }
+    
+        throw new Error(`${description} failed after ${maxAttempts} attempts: ${lastError.message}`);
     }
 
     async loginWithRetry(page, credentials, maxAttempts = 3) {
@@ -241,147 +278,51 @@ class PuppeteerService {
     
     async #waitForVideoAndGetUrl(page, promptText) {
         console.log("Waiting for video to appear in library...");
-        
-        const TOTAL_WAIT_TIME = 40 * 60 * 1000; // 40 minutes in milliseconds
         const START_TIME = Date.now();
+        const CHECK_INTERVAL = 10000; // 10 seconds
+        const MAX_ATTEMPTS = 240; // 40 minutes total
     
         try {
-            // Set up continuous activity simulation
-            await this.#simulateActivity(page);
-    
-            // First, wait for the library grid to appear
-            await page.waitForSelector('.grid-cols-4', { 
-                timeout: TOTAL_WAIT_TIME 
-            });
-    
-            // Function to find video by prompt
-            const findVideoUrl = async () => {
-                const videoUrl = await page.evaluate((searchPrompt) => {
-                    // Find the div containing the prompt text
-                    const promptDivs = Array.from(document.querySelectorAll('.text-token-text-primary'));
-                    const promptDiv = promptDivs.find(div => 
-                        div.textContent.toLowerCase().includes(searchPrompt.toLowerCase())
-                    );
-                    
-                    if (!promptDiv) return null;
-    
-                    // Navigate up to find the parent container
-                    const videoContainer = promptDiv.closest('[data-index]');
-                    if (!videoContainer) return null;
-    
-                    // Find the video element within this container
-                    const video = videoContainer.querySelector('video');
-                    if (!video) return null;
-    
-                    return {
-                        url: video.src,
-                        isLoading: !video.src || video.src.includes('generating') // Check if still generating
-                    };
-                }, promptText);
-    
-                return videoUrl;
-            };
-    
-            // Polling with dynamic intervals
             let attempts = 0;
-            const checkInterval = async () => {
-                const elapsedTime = Date.now() - START_TIME;
-                
-                // Manually trigger some mouse movement every check
-                await page.mouse.move(
-                    200 + Math.random() * 100,
-                    200 + Math.random() * 100,
-                    { steps: 10 }
-                );
-                
-                // Check if we've exceeded total wait time
-                if (elapsedTime > TOTAL_WAIT_TIME) {
-                    throw new Error("Video generation timeout after 40 minutes");
-                }
+            let videoUrl = null;
     
-                console.log(`Checking for video... (${Math.round(elapsedTime / 1000)}s elapsed)`);
-                
-                const result = await findVideoUrl();
-                
-                if (result && result.url && !result.isLoading) {
-                    console.log("Found completed video URL:", result.url);
-                    return result.url;
-                }
-    
-                // Calculate next delay based on elapsed time
-                // More frequent checks in the beginning, longer intervals later
-          // Calculate next delay based on elapsed time
-          let nextDelay;
-          if (elapsedTime < 5 * 60 * 1000) {
-              nextDelay = 10000;
-          } else if (elapsedTime < 15 * 60 * 1000) {
-              nextDelay = 30000;
-          } else {
-              nextDelay = 60000;
-          }
-
-    
-            // Add some random mouse movement during the delay
-            await page.mouse.move(
-                300 + Math.random() * 200,
-                300 + Math.random() * 200,
-                { steps: 20 }
-            );
-
-            console.log(`Video not ready yet. Next check in ${Math.round(nextDelay/1000)}s...`);
-            await this.#humanDelay(nextDelay, nextDelay + 1000);
-            
-            return checkInterval();
-        };
-    
-            // Start polling
-            const videoUrl = await checkInterval();
-    
-            // Verify the video is actually loaded and playable
-            const isVideoLoaded = await page.evaluate(async (url) => {
+            while (attempts < MAX_ATTEMPTS) {
                 try {
-                    const video = document.querySelector(`video[src="${url}"]`);
-                    if (!video) return false;
-    
-                    // Check if video is playable
-                    if (video.readyState >= 3) return true;
-    
-                    // Wait for video to be ready (with timeout)
-                    await new Promise((resolve, reject) => {
-                        const timeout = setTimeout(() => reject('Video load timeout'), 30000);
+                    videoUrl = await page.evaluate((searchPrompt) => {
+                        const promptDiv = Array.from(document.querySelectorAll('.text-token-text-primary'))
+                            .find(div => div.textContent.toLowerCase().includes(searchPrompt.toLowerCase()));
                         
-                        video.addEventListener('canplay', () => {
-                            clearTimeout(timeout);
-                            resolve();
-                        }, { once: true });
+                        if (!promptDiv) return null;
                         
-                        video.addEventListener('error', () => {
-                            clearTimeout(timeout);
-                            reject('Video load error');
-                        }, { once: true });
-                    });
+                        const video = promptDiv.closest('[data-index]')?.querySelector('video');
+                        return video?.src || null;
+                    }, promptText);
     
-                    return true;
+                    if (videoUrl) {
+                        console.log("Found video URL:", videoUrl);
+                        return {
+                            success: true,
+                            videoUrl,
+                            generationTime: Date.now() - START_TIME
+                        };
+                    }
                 } catch (error) {
-                    console.error('Video verification error:', error);
-                    return false;
+                    console.warn(`Check attempt ${attempts + 1} failed:`, error);
                 }
-            }, videoUrl);
     
-            if (!isVideoLoaded) {
-                throw new Error("Video found but not playable");
+                attempts++;
+                await this.#humanDelay(CHECK_INTERVAL, CHECK_INTERVAL + 1000);
+                
+                // Clean up resources every 5 attempts
+                if (attempts % 5 === 0) {
+                    await this.#cleanupResources(page);
+                }
             }
     
-            return {
-                success: true,
-                videoUrl,
-                generationTime: Date.now() - START_TIME
-            };
-    
-        }     catch (error) {
-            const elapsedTime = Math.round((Date.now() - START_TIME) / 1000);
-            console.error(`Video generation failed after ${elapsedTime}s:`, error);
-            throw new Error(`Video generation failed after ${elapsedTime}s: ${error.message}`);
+            throw new Error("Video generation timeout");
+        } catch (error) {
+            console.error("Video wait error:", error);
+            throw error;
         }
     }
 
@@ -524,9 +465,9 @@ async #selectOptionSafely(page, optionValue, optionType) {
     console.log(`Attempting to set ${optionType} to ${optionValue}`);
     
     try {
-        // First try direct selector
-        const directSelector = `button:has-text("${optionValue}")`;
-        const button = await page.$(directSelector);
+        // Use XPath instead of :has-text
+        const buttonXPath = `//button[contains(text(), '${optionValue}')]`;
+        const [button] = await page.$x(buttonXPath);
         
         if (button) {
             const isSelected = await this.#isButtonSelected(button);
@@ -554,7 +495,6 @@ async #selectOptionSafely(page, optionValue, optionType) {
             return true;
         }
 
-        console.warn(`Could not find or select option ${optionValue} for ${optionType}`);
         return false;
     } catch (error) {
         console.error(`Error selecting ${optionType} option:`, error);
@@ -668,33 +608,31 @@ async #selectOptionSafely(page, optionValue, optionType) {
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
-                '--disable-software-rasterizer',
-                '--disable-extensions',
-                // '--single-process',
-                '--no-zygote',
+                '--js-flags=--expose-gc',
                 '--disable-background-networking',
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-breakpad',
+                '--disable-client-side-phishing-detection',
+                '--disable-component-extensions-with-background-pages',
                 '--disable-default-apps',
+                '--disable-dev-shm-usage',
+                '--disable-extensions',
+                '--disable-features=TranslateUI',
+                '--disable-hang-monitor',
+                '--disable-ipc-flooding-protection',
+                '--disable-popup-blocking',
+                '--disable-prompt-on-repost',
+                '--disable-renderer-backgrounding',
                 '--disable-sync',
-                '--disable-translate',
-                '--hide-scrollbars',
+                '--force-color-profile=srgb',
                 '--metrics-recording-only',
-                '--mute-audio',
                 '--no-first-run',
-                '--safebrowsing-disable-auto-update',
-                '--window-size=1280,720',
-                '--disable-blink-features=AutomationControlled',
-                `--user-agent=${userAgent}`,
-                '--remote-debugging-port=9222',
-                `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`,
-            ],
-            executablePath: chromePath,
-            ignoreHTTPSErrors: true,
-            dumpio: true,
-            env: {
-                ...process.env,
-                CHROME_PATH: chromePath,
-                CHROMEDRIVER_PATH: '/app/.chrome-for-testing/chromedriver-linux64/chromedriver'
-            }
+                '--enable-automation',
+                '--password-store=basic',
+                '--use-mock-keychain',
+                `--proxy-server=${process.env.PROXY_SERVER}:${process.env.PROXY_PORT}`
+            ]
         });
 
         const page = await browser.newPage();

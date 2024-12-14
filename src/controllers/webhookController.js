@@ -166,7 +166,6 @@ class WebhookController {
                         .update({
                             payment_status: 'payment_bounced',
                             status: 'failed',
-                            error_chain_id: chainId,
                             error_tx_hash: txHash,
                             error: 'Payment bounced',
                             updated_at: new Date().toISOString()

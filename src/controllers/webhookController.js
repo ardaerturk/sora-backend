@@ -116,7 +116,7 @@ class WebhookController {
                             .from('orders_2025cool')
                             .update({
                                 payment_status: 'payment_started',
-                                payment_chain_id: parseInt(chainId),
+                                payment_chain_id: chainId,
                                 payment_tx_hash: txHash,
                                 updated_at: new Date().toISOString()
                             })
@@ -138,7 +138,7 @@ class WebhookController {
                         .from('orders_2025cool')
                         .update({
                             payment_status: 'payment_completed',
-                            payment_completed_chain_id: parseInt(chainId),
+                            payment_completed_chain_id: chainId,
                             payment_completed_tx_hash: txHash,
                             status: 'pending_generation',
                             updated_at: new Date().toISOString()

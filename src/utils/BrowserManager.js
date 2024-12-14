@@ -31,7 +31,6 @@ class BrowserManager {
         //         `--user-agent=${userAgent}`,
         //                         // `--proxy-server=${PROXY_SERVER}:${PROXY_PORT}`
         //     ],
-        //     ignoreDefaultArgs: ['--enable-automation'],
         // }
 
 
@@ -82,6 +81,8 @@ class BrowserManager {
             browserOptions.executablePath = '/app/.chrome-for-testing/chrome-linux64/chrome';
         }
 
+
+
         const browser = await puppeteer.launch(browserOptions);
         const page = await browser.newPage();
 
@@ -103,10 +104,10 @@ class BrowserManager {
         const PROXY_PASS = 'vBSmMBABjC'
 
 
-        await page.authenticate({
-            username: PROXY_USER,
-            password: PROXY_PASS
-        });
+        // await page.authenticate({
+        //     username: PROXY_USER,
+        //     password: PROXY_PASS
+        // });
 
         // Configure headers and viewport
         await page.setUserAgent(userAgent);
@@ -130,19 +131,19 @@ class BrowserManager {
             await dialog.dismiss();
         });
 
-        // Enable request interception for optimization
-        await page.setRequestInterception(true);
-        page.on('request', request => {
-            if (
-                request.resourceType() === 'image' ||
-                request.resourceType() === 'font' ||
-                request.resourceType() === 'media'
-            ) {
-                request.abort();
-            } else {
-                request.continue();
-            }
-        });
+    //     // Enable request interception for optimization
+    //     await page.setRequestInterception(true);
+    //     page.on('request', request => {
+    //         if (
+    //             request.resourceType() === 'image' ||
+    //             request.resourceType() === 'font' ||
+    //             request.resourceType() === 'media'
+    //         ) {
+    //             request.abort();
+    //         } else {
+    //             request.continue();
+    //         }
+    //     });
     }
 
     async verifyProxyConnection(page) {

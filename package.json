@@ -6,7 +6,6 @@
     "node": "20.x"
   },
   "scripts": {
-    "prestart": "node src/utils/verifyDeployment.js",
     "start": "node src/app.js",
     "worker": "node src/worker.js"
   },

@@ -6,6 +6,12 @@ const supabase = require('../config/supabase');
 
 class VideoQueue {
     constructor() {
+
+        console.log('username', process.env.REDIS_USERNAME)
+        console.log('password', process.env.REDIS_PASSWORD)
+        console.log('host', process.env.REDIS_HOST)
+        console.log('port', process.env.REDIS_PORT)
+
         // Create Redis client
         this.redisClient = createClient({
             username: process.env.REDIS_USERNAME || 'default',

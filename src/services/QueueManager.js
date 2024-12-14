@@ -1,5 +1,5 @@
 // services/QueueManager.js
-const videoProcessor = require('./VideoProcessor.js');
+const videoProcessor = require('./VideoProcessor');
 const ErrorHandler = require('../utils/ErrorHandler');
 
 class QueueManager {

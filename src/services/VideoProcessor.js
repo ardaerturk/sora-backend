@@ -4,7 +4,7 @@ const LoginHandler = require('../utils/LoginHandler');
 const VideoGenerator = require('../utils/VideoGenerator');
 const ErrorHandler = require('../utils/ErrorHandler');
 const supabase = require('../config/supabase');
-const emailService = require('./emailService');
+const emailService = require('./EmailService');
 
 class VideoProcessor {
     constructor() {

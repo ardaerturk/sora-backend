@@ -1,5 +1,5 @@
 const supabase = require('../config/supabase');
-const videoQueue = require('../services/videoQueue');
+const queueManager = require('../services/QueueManager');
 
 class WebhookController {
     constructor() {
@@ -7,219 +7,194 @@ class WebhookController {
     }
 
     async handleWebhook(req, res) {
-        console.log('Processing webhook:', {
-            method: req.method,
-            path: req.path,
-            headers: req.headers,
-            body: req.body
-        });
-
-        const authHeader = req.headers.authorization;
         const idempotencyKey = req.headers['idempotency-key'];
+        
+        // Quick response as required by Daimo
+        res.status(200).json({ received: true });
 
         try {
-            // Quick response as required by Daimo
-            res.status(200).json({ received: true });
-
-            // Verify webhook token
-            if (!this.verifyToken(authHeader)) {
-                console.error('Invalid webhook token');
+            // Verify webhook authenticity
+            if (!this.verifyWebhook(req)) {
+                console.error('Invalid webhook request');
                 return;
             }
 
-            // Check idempotency
-            if (await this.isEventProcessed(idempotencyKey)) {
-                console.log('Duplicate event, skipping:', idempotencyKey);
+            // Check for duplicate events
+            if (await this.isDuplicateEvent(idempotencyKey)) {
+                console.log('Duplicate event skipped:', idempotencyKey);
                 return;
             }
 
-            // Process the webhook
             await this.processWebhookEvent(req.body, idempotencyKey);
 
         } catch (error) {
-            console.error('Webhook handling error:', error);
-            // Don't send error response as we've already responded
+            console.error('Webhook processing error:', error);
+            await this.logWebhookError(error, req.body);
         }
     }
 
-    verifyToken(authHeader) {
-        console.log('Authorization header:', authHeader);
-        if (!authHeader || !authHeader.startsWith('Basic ')) {
-            return false;
-        }
-
-        const token = authHeader.split(' ')[1];
-        const isValid = token === process.env.DAIMO_WEBHOOK_SECRET;
-        console.log('Token verification:', isValid ? 'passed' : 'failed');
-        return isValid;
+    verifyWebhook(req) {
+        const token = req.headers.authorization?.split(' ')[1];
+        return token === process.env.DAIMO_WEBHOOK_SECRET;
     }
 
-    async isEventProcessed(idempotencyKey) {
-        try {
-            const { data } = await supabase
-                .from('processed_webhooks')
-                .select('id')
-                .eq('idempotency_key', idempotencyKey)
-                .single();
-
-            return !!data;
-        } catch (error) {
-            console.error('Error checking processed webhook:', error);
-            return false;
-        }
+    async isDuplicateEvent(idempotencyKey) {
+        const { data } = await supabase
+            .from('processed_webhooks')
+            .select('id')
+            .eq('idempotency_key', idempotencyKey)
+            .single();
+        
+        return !!data;
     }
 
     async processWebhookEvent(event, idempotencyKey) {
-        console.log('Processing webhook event:', {
-            event,
-            idempotencyKey
-        });
+        const { type, paymentId, chainId, txHash } = event;
 
+        // Record webhook to prevent duplicates
+        await this.recordWebhook(idempotencyKey, event);
+
+        // Get current order status
+        const order = await this.getOrderStatus(paymentId);
+        
         try {
-            const { type, paymentId, chainId, txHash } = event;
-
-            // First, record the webhook to prevent duplicates
-            console.log('Recording processed webhook');
-            const { error: insertError } = await supabase
-                .from('processed_webhooks')
-                .insert([{
-                    idempotency_key: idempotencyKey,
-                    event_type: type,
-                    payment_id: paymentId,
-                    created_at: new Date().toISOString()
-                }]);
-
-            if (insertError) {
-                console.error('Error recording processed webhook:', insertError);
-                throw insertError;
-            }
-
-            // Check current order status
-            const { data: currentOrder, error: fetchError } = await supabase
-                .from('orders_2025cool')
-                .select('payment_status, status')
-                .eq('daimo_id', paymentId)
-                .single();
-
-            if (fetchError) {
-                console.error('Error fetching current order status:', fetchError);
-                throw fetchError;
-            }
-
-            // Process based on event type
             switch (type) {
-                case 'payment_started': {
-                    console.log('Processing payment_started event');
-                    // Only update if not already completed
-                    if (currentOrder.payment_status !== 'payment_completed') {
-                        const { error } = await supabase
-                            .from('orders_2025cool')
-                            .update({
-                                payment_status: 'payment_started',
-                                payment_chain_id: chainId,
-                                payment_tx_hash: txHash,
-                                updated_at: new Date().toISOString()
-                            })
-                            .eq('daimo_id', paymentId);
-
-                        if (error) {
-                            console.error('Error updating payment_started status:', error);
-                            throw error;
-                        }
-                    } else {
-                        console.log('Skipping payment_started update as order is already completed');
-                    }
+                case 'payment_started':
+                    await this.handlePaymentStarted(paymentId, chainId, txHash, order);
                     break;
-                }
 
-                case 'payment_completed': {
-                    console.log('Processing payment_completed event');
-                    const { data: order, error } = await supabase
-                        .from('orders_2025cool')
-                        .update({
-                            payment_status: 'payment_completed',
-                            payment_completed_tx_hash: txHash,
-                            status: 'pending_generation',
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('daimo_id', paymentId)
-                        .select()
-                        .single();
-
-                    if (error) {
-                        console.error('Error updating payment_completed status:', error);
-                        throw error;
-                    }
-
-                    if (order) {
-                        console.log('Adding to video generation queue:', order.daimo_id);
-                        await videoQueue.addJob(order.daimo_id);
-                    }
+                case 'payment_completed':
+                    await this.handlePaymentCompleted(paymentId, txHash, order);
                     break;
-                }
 
-                case 'payment_bounced': {
-                    console.log('Processing payment_bounced event');
-                    const { error } = await supabase
-                        .from('orders_2025cool')
-                        .update({
-                            payment_status: 'payment_bounced',
-                            status: 'failed',
-                            error_tx_hash: txHash,
-                            error: 'Payment bounced',
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('daimo_id', paymentId);
-
-                    if (error) {
-                        console.error('Error updating payment_bounced status:', error);
-                        throw error;
-                    }
+                case 'payment_bounced':
+                    await this.handlePaymentBounced(paymentId, txHash);
                     break;
-                }
 
-                default: {
+                default:
                     console.warn('Unknown event type:', type);
-                }
             }
-
-            console.log('Webhook processing completed successfully');
-
         } catch (error) {
-            console.error('Error processing webhook event:', error);
-            
-            // Try to update order status on error
-            try {
-                await supabase
-                    .from('orders_2025cool')
-                    .update({
-                        status: 'failed',
-                        error: error.message,
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('daimo_id', event.paymentId);
-            } catch (updateError) {
-                console.error('Error updating order status after failure:', updateError);
-            }
-
+            await this.handleProcessingError(paymentId, error);
             throw error;
         }
     }
 
-    // Helper method to get webhook status
-    async getWebhookStatus(idempotencyKey) {
-        try {
-            const { data, error } = await supabase
-                .from('processed_webhooks')
-                .select('*')
-                .eq('idempotency_key', idempotencyKey)
-                .single();
+    async recordWebhook(idempotencyKey, event) {
+        const { error } = await supabase
+            .from('processed_webhooks')
+            .insert([{
+                idempotency_key: idempotencyKey,
+                event_type: event.type,
+                payment_id: event.paymentId,
+                created_at: new Date().toISOString()
+            }]);
 
-            if (error) throw error;
-            return data;
-        } catch (error) {
-            console.error('Error getting webhook status:', error);
-            return null;
+        if (error) {
+            throw new Error(`Failed to record webhook: ${error.message}`);
+        }
+    }
+
+    async getOrderStatus(paymentId) {
+        const { data, error } = await supabase
+            .from('orders_2025cool')
+            .select('payment_status, status')
+            .eq('daimo_id', paymentId)
+            .single();
+
+        if (error) {
+            throw new Error(`Failed to fetch order status: ${error.message}`);
+        }
+
+        return data;
+    }
+
+    async handlePaymentStarted(paymentId, chainId, txHash, currentOrder) {
+        if (currentOrder.payment_status === 'payment_completed') {
+            console.log('Skipping payment_started for completed order');
+            return;
+        }
+
+        const { error } = await supabase
+            .from('orders_2025cool')
+            .update({
+                payment_status: 'payment_started',
+                payment_chain_id: chainId,
+                payment_tx_hash: txHash,
+                updated_at: new Date().toISOString()
+            })
+            .eq('daimo_id', paymentId);
+
+        if (error) {
+            throw new Error(`Failed to update payment_started status: ${error.message}`);
+        }
+    }
+
+    async handlePaymentCompleted(paymentId, txHash, currentOrder) {
+        const { data: order, error } = await supabase
+            .from('orders_2025cool')
+            .update({
+                payment_status: 'payment_completed',
+                payment_completed_tx_hash: txHash,
+                status: 'pending_generation',
+                updated_at: new Date().toISOString()
+            })
+            .eq('daimo_id', paymentId)
+            .select()
+            .single();
+
+        if (error) {
+            throw new Error(`Failed to update payment_completed status: ${error.message}`);
+        }
+
+        // Add to video generation queue
+        await queueManager.addJob(paymentId);
+    }
+
+    async handlePaymentBounced(paymentId, txHash) {
+        const { error } = await supabase
+            .from('orders_2025cool')
+            .update({
+                payment_status: 'payment_bounced',
+                status: 'failed',
+                error_tx_hash: txHash,
+                error: 'Payment bounced',
+                updated_at: new Date().toISOString()
+            })
+            .eq('daimo_id', paymentId);
+
+        if (error) {
+            throw new Error(`Failed to update payment_bounced status: ${error.message}`);
+        }
+    }
+
+    async handleProcessingError(paymentId, error) {
+        try {
+            await supabase
+                .from('orders_2025cool')
+                .update({
+                    status: 'failed',
+                    error: error.message,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('daimo_id', paymentId);
+        } catch (updateError) {
+            console.error('Failed to update error status:', updateError);
+        }
+    }
+
+    async logWebhookError(error, eventData) {
+        try {
+            await supabase
+                .from('webhook_errors')
+                .insert([{
+                    error_message: error.message,
+                    error_stack: error.stack,
+                    event_data: eventData,
+                    created_at: new Date().toISOString()
+                }]);
+        } catch (logError) {
+            console.error('Failed to log webhook error:', logError);
         }
     }
 }

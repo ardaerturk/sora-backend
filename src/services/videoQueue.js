@@ -1,7 +1,7 @@
 const { createClient } = require('redis');
 const Bull = require('bull');
 const puppeteerService = require('../utils/puppeteerUtils');
-const emailService = require('./emailService');
+const emailService = require('./EmailService');
 const supabase = require('../config/supabase');
 const Redis = require('ioredis'); // Add this for Bull
 

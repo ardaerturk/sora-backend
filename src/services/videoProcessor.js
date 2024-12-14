@@ -241,4 +241,3 @@ class VideoProcessor {
     }
 }
 module.exports = new VideoProcessor();
-

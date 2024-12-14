@@ -1,40 +1,6 @@
-// src/services/QueueManager.js
-const path = require('path');
-const fs = require('fs');
-const pathResolver = require('../utils/pathResolver');
-
-let VideoProcessor;
-try {
-    console.log('\n=== Loading VideoProcessor ===');
-    
-    // Debug current directory structure
-    const currentDir = process.cwd();
-    console.log('Current working directory:', currentDir);
-    
-    // Check if we're in the correct directory
-    const srcServicesDir = path.join(currentDir, 'src', 'services');
-    if (fs.existsSync(srcServicesDir)) {
-        console.log('\nContents of src/services directory:');
-        fs.readdirSync(srcServicesDir).forEach(file => {
-            console.log(`- ${file}`);
-        });
-    } else {
-        console.log('src/services directory not found!');
-    }
-
-    // Try to load VideoProcessor
-    const videoProcessorPath = pathResolver.resolve('services/VideoProcessor');
-    console.log('\nAttempting to load from:', videoProcessorPath);
-    
-    VideoProcessor = require(videoProcessorPath);
-    console.log('Successfully loaded VideoProcessor');
-
-} catch (error) {
-    console.error('\n=== Error Loading VideoProcessor ===');
-    console.error('Error:', error.message);
-    console.error('Stack:', error.stack);
-    throw error;
-}
+// services/QueueManager.js
+const videoProcessor = require('../VideoProcessor');
+const ErrorHandler = require('../utils/ErrorHandler');
 
 class QueueManager {
     constructor() {
@@ -42,7 +8,6 @@ class QueueManager {
         this.isProcessing = false;
         this.maxConcurrent = 1;
         this.activeJobs = new Set();
-        this.videoProcessor = VideoProcessor;
     }
 
     async addJob(orderId) {

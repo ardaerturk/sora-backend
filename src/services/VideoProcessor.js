@@ -1,12 +1,10 @@
-// src/services/VideoProcessor.js
-const pathResolver = require('../utils/pathResolver');
-
-const BrowserManager = require(pathResolver.resolve('utils/BrowserManager'));
-const LoginHandler = require(pathResolver.resolve('utils/LoginHandler'));
-const VideoGenerator = require(pathResolver.resolve('utils/VideoGenerator'));
-const ErrorHandler = require(pathResolver.resolve('utils/ErrorHandler'));
-const supabase = require(pathResolver.resolve('config/supabase'));
-const emailService = require(pathResolver.resolve('services/EmailService'));
+// services/VideoProcessor.js
+const BrowserManager = require('../utils/BrowserManager');
+const LoginHandler = require('../utils/LoginHandler');
+const VideoGenerator = require('../utils/VideoGenerator');
+const ErrorHandler = require('../utils/ErrorHandler');
+const supabase = require('../config/supabase');
+const emailService = require('./emailService');
 
 class VideoProcessor {
     constructor() {

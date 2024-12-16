@@ -6,11 +6,19 @@ const ErrorHandler = require('../utils/ErrorHandler');
 class VideoGenerator {
     static async generate(page, options) {
         try {
+            console.log("Starting video generation process...");
             await this.prepareForGeneration(page);
             await this.setVideoOptions(page, options);
             await this.enterPrompt(page, options.prompt);
+            
+            console.log("Initiating generation...");
             await this.initiateGeneration(page);
-            return await this.waitForVideo(page, options.prompt);
+            
+            console.log("Waiting for video completion...");
+            const result = await this.waitForVideo(page, options.prompt);
+            
+            console.log(`Video generated successfully in ${Math.round(result.generationTime / 1000)}s`);
+            return result;
         } catch (error) {
             await this.handleGenerationError(page, error, options);
             throw error;
@@ -245,6 +253,8 @@ static async findCreateButton(page) {
 }
 
 static async clickCreateButton(page, button) {
+    console.log("Attempting to click Create video button...");
+    
     const clickMethods = [
         // Method 1: Direct click
         async () => await button.click(),
@@ -274,54 +284,218 @@ static async clickCreateButton(page, button) {
         }, button)
     ];
 
+    let generationStarted = false;
     for (const method of clickMethods) {
         try {
             await method();
-            await HumanBehavior.delay(1000);
+            await HumanBehavior.delay(2000); // Increased delay
             
-            // Verify if generation started
-            const generationStarted = await page.evaluate(() => {
-                return !!document.querySelector('.video-result');
+            // Check for multiple indicators of generation starting
+            generationStarted = await page.evaluate(() => {
+                // Check for various indicators that generation has started
+                const indicators = [
+                    '.video-result',
+                    '.generating',
+                    '.progress',
+                    '[aria-label*="generating"]',
+                    '[aria-label*="processing"]',
+                    // Add any other relevant selectors
+                ];
+                
+                return indicators.some(selector => 
+                    document.querySelector(selector) !== null
+                );
             });
             
-            if (generationStarted) return;
+            if (generationStarted) {
+                console.log("Video generation initiated successfully");
+                return;
+            }
         } catch (error) {
             console.log('Click method failed:', error.message);
         }
     }
 
-    throw new Error('Failed to initiate video generation');
+    // Don't throw error, just log warning and continue
+    console.warn('Could not verify generation start, continuing anyway...');
 }
 
 static async waitForVideo(page, promptText) {
-    console.log("Waiting for video generation...");
+    console.log("Waiting for video to appear in library...");
     const START_TIME = Date.now();
     const CHECK_INTERVAL = 10000; // 10 seconds
     const MAX_ATTEMPTS = 240; // 40 minutes total
-    
-    for (let attempts = 0; attempts < MAX_ATTEMPTS; attempts++) {
+    let attempts = 0;
+
+    // Set up continuous mouse movement
+    const moveMouseInterval = setInterval(async () => {
         try {
-            const videoUrl = await this.checkForVideo(page, promptText);
-            if (videoUrl) {
-                return {
-                    success: true,
-                    videoUrl,
-                    generationTime: Date.now() - START_TIME
-                };
-            }
+            await this.simulateUserActivity(page);
         } catch (error) {
-            console.warn(`Check attempt ${attempts + 1} failed:`, error);
+            console.warn('Mouse movement error:', error);
+        }
+    }, 2000);
+
+    try {
+        while (attempts < MAX_ATTEMPTS) {
+            try {
+                console.log(`Checking for video (attempt ${attempts + 1}/${MAX_ATTEMPTS})...`);
+                
+                // Perform various interactions to trigger content update
+                await this.refreshContentView(page);
+                
+                const videoUrl = await page.evaluate((searchPrompt) => {
+                    // Force re-render of the content
+                    window.dispatchEvent(new Event('scroll'));
+                    
+                    // Look for various indicators of the video
+                    const promptDivs = Array.from(document.querySelectorAll('.text-token-text-primary'));
+                    console.log('Found prompt divs:', promptDivs.length);
+                    
+                    const promptDiv = promptDivs.find(div => 
+                        div.textContent.toLowerCase().includes(searchPrompt.toLowerCase())
+                    );
+                    
+                    if (!promptDiv) {
+                        console.log('Prompt div not found');
+                        return null;
+                    }
+                    
+                    const container = promptDiv.closest('[data-index]');
+                    if (!container) {
+                        console.log('Container not found');
+                        return null;
+                    }
+                    
+                    // Try to force video load
+                    const videos = container.querySelectorAll('video');
+                    videos.forEach(video => {
+                        video.load();
+                        video.play().catch(() => {}); // Ignore autoplay errors
+                    });
+                    
+                    const video = container.querySelector('video');
+                    if (!video) {
+                        console.log('Video element not found');
+                        return null;
+                    }
+                    
+                    return video.src || null;
+                }, promptText);
+
+                if (videoUrl) {
+                    console.log("Found video URL:", videoUrl);
+                    return {
+                        success: true,
+                        videoUrl,
+                        generationTime: Date.now() - START_TIME
+                    };
+                }
+
+                // Log progress and perform maintenance
+                if (attempts % 5 === 0) {
+                    console.log(`Still waiting for video... (${Math.round((Date.now() - START_TIME) / 1000)}s elapsed)`);
+                    await this.cleanupResources(page);
+                    await this.forceContentRefresh(page);
+                }
+
+            } catch (error) {
+                console.warn(`Check attempt ${attempts + 1} failed:`, error);
+            }
+
+            attempts++;
+            await HumanBehavior.delay(CHECK_INTERVAL, CHECK_INTERVAL + 1000);
         }
 
-        await HumanBehavior.delay(CHECK_INTERVAL, CHECK_INTERVAL + 1000);
-        
-        if (attempts % 5 === 0) {
-            await this.cleanupResources(page);
-        }
+        throw new Error("Video generation timeout");
+    } finally {
+        clearInterval(moveMouseInterval);
     }
-
-    throw new Error("Video generation timeout");
 }
+
+static async simulateUserActivity(page) {
+    try {
+        // Random mouse movement
+        const viewportSize = await page.viewport();
+        const x = Math.floor(Math.random() * viewportSize.width);
+        const y = Math.floor(Math.random() * viewportSize.height);
+        await page.mouse.move(x, y);
+
+        // Occasional scrolling
+        if (Math.random() < 0.3) {
+            await page.evaluate(() => {
+                window.scrollBy(0, (Math.random() * 100) - 50);
+            });
+        }
+
+        // Occasional page interaction
+        if (Math.random() < 0.2) {
+            await page.evaluate(() => {
+                document.body.click();
+                window.dispatchEvent(new Event('mousemove'));
+                window.dispatchEvent(new Event('scroll'));
+            });
+        }
+    } catch (error) {
+        console.warn('User activity simulation error:', error);
+    }
+}
+
+static async refreshContentView(page) {
+    try {
+        await page.evaluate(() => {
+            // Force re-render
+            window.dispatchEvent(new Event('scroll'));
+            window.dispatchEvent(new Event('resize'));
+            
+            // Force video elements to load
+            document.querySelectorAll('video').forEach(video => {
+                video.load();
+                video.play().catch(() => {});
+            });
+            
+            // Trigger any lazy loading
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.dispatchEvent(new Event('mouseenter'));
+                    }
+                });
+            });
+            
+            document.querySelectorAll('[data-index]').forEach(el => {
+                observer.observe(el);
+            });
+        });
+    } catch (error) {
+        console.warn('Content refresh error:', error);
+    }
+}
+
+static async forceContentRefresh(page) {
+    try {
+        await page.evaluate(() => {
+            // Force garbage collection
+            window.gc && window.gc();
+            
+            // Clear any cached content
+            performance.clearResourceTimings();
+            
+            // Reload video elements
+            document.querySelectorAll('video').forEach(video => {
+                const src = video.src;
+                video.src = '';
+                video.load();
+                video.src = src;
+                video.play().catch(() => {});
+            });
+        });
+    } catch (error) {
+        console.warn('Force refresh error:', error);
+    }
+}
+
+
 
 static async checkForVideo(page, promptText) {
     return await page.evaluate((searchPrompt) => {

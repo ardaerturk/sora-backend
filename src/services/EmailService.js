@@ -1,6 +1,7 @@
 const { Resend } = require('resend');
 const createEmailTemplate = require('../utils/emailTemplate');
 const ErrorHandler = require('../utils/ErrorHandler');
+const supabase = require('../config/supabase');
 
 class EmailService {
     constructor() {

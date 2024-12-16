@@ -120,9 +120,9 @@ class VideoProcessor {
                 .update({
                     status: 'completed',
                     video_url: result.videoUrl,
-                    completed_at: new Date().toISOString(),
-                    processing_time: processTime,
-                    generation_time: result.generationTime,
+                    // completed_at: new Date().toISOString(),
+                    // processing_time: processTime,
+                    // updated_at: result.generationTime,
                     updated_at: new Date().toISOString()
                 })
                 .eq('daimo_id', orderId);
